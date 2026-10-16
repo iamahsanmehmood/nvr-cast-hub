@@ -131,7 +131,7 @@ def draw_cursor_on_bgra(buf: bytearray, width: int, height: int, left: int, top:
                 if dx == 0 or dy == 0 or dx == max_dx - 1:
                     buf[idx : idx + 4] = b"\x00\x00\x00\xff"
                 else:
-                    buf[idx : idx + 4] = b"\x00\xff\xff\xff"
+                    buf[idx : idx + 4] = b"\xff\xff\xff\xff"
     except Exception:
         pass
 
@@ -139,12 +139,13 @@ def draw_cursor_on_bgra(buf: bytearray, width: int, height: int, left: int, top:
 class NVRCastEngine:
     """
     Universal NVR RTSP Casting Engine (v0.1.0-beta).
-    Supports:
+    Features:
       - Direct YouTube / Web Video Streaming with Real-Time Seek, Pause/Resume & Loop
       - Chrome Extension PiP-Style Live Video Player Mirroring (video.captureStream() + seek sync)
+      - Rock-Solid Photo Gallery & Single-Picture Slideshow with Pre-Rendered Cache, Smooth Crossfade,
+        Timer, Shuffle, Next/Prev Slide & Wall-Clock Paced Audio
       - Multi-Monitor PC Desktop Mirroring (Monitor 1, Monitor 2, All Combined) + WASAPI Speaker Audio
       - Meeting-Style Browser Tab / Window / Screen Share
-      - Photo Gallery / Folder Slideshow with Timer, Shuffle & Background Audio
       - Video Loop Mode (Infinite Loop for local videos or web streams)
       - Unified Active Session Tracking across Desktop App, Web Studio & Chrome Extension
     """
@@ -170,7 +171,7 @@ class NVRCastEngine:
         self.current_title = "Idle"
         self.current_url = ""
         self.current_filepath = ""
-        self.active_source = "System"    # e.g., "Desktop App", "Chrome Extension", "Web Studio"
+        self.active_source = "System"
         self.is_paused = False
         self.loop_video = False
         self.stream_started_at = 0.0
@@ -182,6 +183,7 @@ class NVRCastEngine:
         self.gallery_index = 0
         self.gallery_interval = 5        # seconds per slide
         self.gallery_shuffle = False
+        self.gallery_transition = True   # smooth crossfade between slides
         self.gallery_force_step = 0      # +1 for next slide, -1 for prev slide
 
         # Flexible encoding & display settings
@@ -202,6 +204,30 @@ class NVRCastEngine:
     def log(self, msg: str):
         timestamp = time.strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] {msg}")
+
+    def _attach_ffmpeg_log_drainer(self, proc: subprocess.Popen, tag: str = "FFmpeg"):
+        """
+        Continuously drains proc.stdout in a background daemon thread so the OS pipe buffer
+        can NEVER fill up and deadlock rawvideo/stdin streaming.
+        """
+        if not proc or not proc.stdout:
+            return
+
+        def _drain():
+            try:
+                for raw_line in iter(proc.stdout.readline, b""):
+                    if not raw_line:
+                        break
+                    if isinstance(raw_line, bytes):
+                        line_str = raw_line.decode("utf-8", errors="ignore").strip()
+                    else:
+                        line_str = str(raw_line).strip()
+                    if line_str and ("Error" in line_str or "error" in line_str or "Invalid" in line_str):
+                        self.log(f"[{tag}] {line_str}")
+            except Exception:
+                pass
+
+        threading.Thread(target=_drain, daemon=True).start()
 
     def get_current_playback_sec(self) -> int:
         if self.current_mode not in ("YOUTUBE", "FILE"):
@@ -227,6 +253,11 @@ class NVRCastEngine:
                 "index": self.gallery_index,
                 "interval": self.gallery_interval,
                 "shuffle": self.gallery_shuffle,
+                "current_file": (
+                    os.path.basename(self.gallery_images[self.gallery_index])
+                    if self.gallery_images and 0 <= self.gallery_index < len(self.gallery_images)
+                    else ""
+                ),
             },
             "rtsp_main": f"rtsp://{self.lan_ip}:{self.rtsp_port}/main",
             "rtsp_sub": f"rtsp://{self.lan_ip}:{self.rtsp_port}/sub",
@@ -254,7 +285,7 @@ class NVRCastEngine:
                 shutil.copy2(bundled_mtx, MEDIAMTX_EXE)
 
             bundled_ext = os.path.join(BUNDLE_DIR, "chrome_extension")
-            if os.path.isdir(bundled_ext):
+            if os.path.isdir(bundled_ext) and os.path.abspath(bundled_ext) != os.path.abspath(EXT_DIR):
                 shutil.copytree(bundled_ext, EXT_DIR, dirs_exist_ok=True)
         except Exception as e:
             self.log(f"Asset unpack note: {e}")
@@ -272,7 +303,7 @@ class NVRCastEngine:
                     if idx == 0:
                         label = f"All Monitors Combined ({w}x{h})"
                     else:
-                        orient = "Landscape" if w >= h else "Vertical/Portrait"
+                        orient = "Landscape" if w >= h else "Vertical"
                         prim = " [Primary]" if m.get("is_primary") or idx == 1 else ""
                         label = f"Monitor {idx}: {w}x{h} ({orient}){prim}"
                     result.append({
@@ -473,7 +504,7 @@ paths:
                     except Exception:
                         pass
                 self.ffmpeg_proc.terminate()
-                self.ffmpeg_proc.wait(timeout=2.0)
+                self.ffmpeg_proc.wait(timeout=1.5)
             except Exception:
                 try:
                     self.ffmpeg_proc.kill()
@@ -580,8 +611,8 @@ paths:
             font_spec = "fontfile='C\\:/Windows/Fonts/arial.ttf'"
             drawtext_filter = (
                 f"color=c=#0f172a:s=1280x720:r={self.fps},"
-                "drawbox=x=60:y=60:w=1160:h=600:color=#1e293b@0.85:t=fill,"
-                "drawbox=x=60:y=60:w=1160:h=6:color=#3b82f6:t=fill,"
+                "drawbox=x=60:y=60:w=1160:h=600:color=#1e293b@0.90:t=fill,"
+                "drawbox=x=60:y=60:w=1160:h=6:color=#2563eb:t=fill,"
                 f"drawtext={font_spec}:text='NVR CAST HUB v{APP_VERSION} — UNIVERSAL RTSP CASTER':fontcolor=white:fontsize=33:x=(w-text_w)/2:y=140,"
                 f"drawtext={font_spec}:text='STATUS\\: ONLINE & READY FOR STREAM (HIKVISION / DAHUA / ONVIF)':fontcolor=#4ade80:fontsize=25:x=(w-text_w)/2:y=220,"
                 f"drawtext={font_spec}:text='Main RTSP\\: rtsp\\://{self.lan_ip}\\:{self.rtsp_port}/main':fontcolor=#93c5fd:fontsize=25:x=(w-text_w)/2:y=310,"
@@ -609,9 +640,9 @@ paths:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
                 startupinfo=startupinfo,
             )
+            self._attach_ffmpeg_log_drainer(self.ffmpeg_proc, "Standby")
             self.log("Standby feed active on /main and /sub (NVR channel stays online).")
 
     def _start_paused_hold_screen(self, held_title: str):
@@ -651,21 +682,23 @@ paths:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
             startupinfo=startupinfo,
         )
+        self._attach_ffmpeg_log_drainer(self.ffmpeg_proc, "PausedHold")
 
     def toggle_pause(self, force_state: bool = None, source: str = None) -> bool:
         """Pauses or resumes the active stream across all modes without dropping the NVR RTSP channel."""
         target_pause = (not self.is_paused) if force_state is None else bool(force_state)
-        if self.current_mode == "STANDBY" or self.current_mode == "STOPPED":
+        if self.current_mode in ("STANDBY", "STOPPED"):
             return False
 
         if self.current_mode in ("GALLERY", "SCREEN"):
             self.is_paused = target_pause
             state_txt = "PAUSED" if self.is_paused else "RESUMED"
             self.log(f"{self.current_mode} stream {state_txt} (by {source or 'User'}).")
-            self.status_cb(self.current_mode, f"{'[PAUSED] ' if self.is_paused else ''}{self.current_title.replace('[PAUSED] ', '')}")
+            clean_t = self.current_title.replace("[PAUSED] ", "")
+            self.current_title = f"{'[PAUSED] ' if self.is_paused else ''}{clean_t}"
+            self.status_cb(self.current_mode, self.current_title)
             return self.is_paused
 
         if self.current_mode == "YOUTUBE":
@@ -712,6 +745,9 @@ paths:
 
     def seek_stream(self, target_sec: int = None, delta_sec: int = None, source: str = None):
         """Seeks an active YouTube/Web or Local Video stream to a specific timestamp or relative +/- seconds."""
+        if self.current_mode == "GALLERY" and delta_sec is not None:
+            self.step_gallery_slide(1 if delta_sec >= 0 else -1)
+            return
         if self.current_mode not in ("YOUTUBE", "FILE"):
             return
         cur = self.get_current_playback_sec()
@@ -841,17 +877,12 @@ paths:
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
+                self._attach_ffmpeg_log_drainer(proc_ref, "YouTube")
 
             self.log(f"NOW STREAMING TO NVR ({source}): {title}")
-
-            for line in (proc_ref.stdout or []):
-                line_str = line.strip()
-                if line_str and ("Error" in line_str or "error" in line_str):
-                    self.log(f"[FFmpeg] {line_str}")
 
             proc_ref.wait()
             with self.stream_lock:
@@ -879,6 +910,11 @@ paths:
         if not os.path.isfile(filepath):
             self.log(f"File not found: {filepath}")
             return
+        # If the user picked an image file via Local File, route to Gallery Slideshow automatically
+        if filepath.lower().endswith(SUPPORTED_IMAGE_EXTS):
+            self.start_gallery_slideshow([filepath], interval_sec=self.gallery_interval, shuffle=False, source=source)
+            return
+
         if loop is not None:
             self.loop_video = bool(loop)
 
@@ -916,10 +952,10 @@ paths:
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
+                self._attach_ffmpeg_log_drainer(proc_ref, "File")
 
             self.log(f"Streaming local file to NVR ({source}, loop={self.loop_video}): {title}")
             proc_ref.wait()
@@ -938,8 +974,11 @@ paths:
         source: str = "Photo Gallery",
     ):
         """
-        Streams a Photo Gallery / Folder Slideshow to the NVR with configurable slide timer,
-        random shuffle option, Next/Prev slide controls, and WASAPI PC Speaker background audio.
+        Rock-solid Photo Gallery / Single Picture / Folder Slideshow broadcaster:
+          - Background pre-loader & slide cache so image decoding NEVER stalls the 25fps FFmpeg pipe
+          - Smooth 8-frame crossfade transitions between photos
+          - Strict wall-clock frame pacing (time.perf_counter) + drained FFmpeg stdout pipe
+          - Supports single static picture or multi-photo folder with timer, shuffle, and Next/Prev step
         """
         if Image is None:
             self.log("ERROR: 'Pillow' (PIL) is required for Photo Gallery Slideshow.")
@@ -947,16 +986,24 @@ paths:
 
         images = []
         if isinstance(folder_or_files, str):
-            folder_path = folder_or_files.strip()
-            if os.path.isdir(folder_path):
-                self.gallery_folder = folder_path
-                for entry in sorted(os.listdir(folder_path)):
-                    full = os.path.join(folder_path, entry)
+            raw_str = folder_or_files.strip()
+            # Support semicolon-separated file list or a folder/single file path
+            if ";" in raw_str and not os.path.isdir(raw_str):
+                parts = [p.strip() for p in raw_str.split(";") if p.strip()]
+                for p in parts:
+                    if os.path.isfile(p) and p.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                        images.append(p)
+                if images:
+                    self.gallery_folder = os.path.dirname(images[0])
+            elif os.path.isdir(raw_str):
+                self.gallery_folder = raw_str
+                for entry in sorted(os.listdir(raw_str)):
+                    full = os.path.join(raw_str, entry)
                     if os.path.isfile(full) and entry.lower().endswith(SUPPORTED_IMAGE_EXTS):
                         images.append(full)
-            elif os.path.isfile(folder_path) and folder_path.lower().endswith(SUPPORTED_IMAGE_EXTS):
-                self.gallery_folder = os.path.dirname(folder_path)
-                images.append(folder_path)
+            elif os.path.isfile(raw_str) and raw_str.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                self.gallery_folder = os.path.dirname(raw_str)
+                images.append(raw_str)
         elif isinstance(folder_or_files, list):
             for p in folder_or_files:
                 if os.path.isfile(p) and p.lower().endswith(SUPPORTED_IMAGE_EXTS):
@@ -965,61 +1012,100 @@ paths:
                 self.gallery_folder = os.path.dirname(images[0])
 
         if not images:
-            self.log("Gallery Slideshow: No supported images (.jpg, .png, .webp, .bmp) found in selection!")
+            self.log("Gallery Slideshow: No supported pictures (.jpg, .png, .webp, .bmp, .gif) found!")
             return
 
         self.gallery_interval = max(1, int(interval_sec or 5))
         self.gallery_shuffle = bool(shuffle)
-        if self.gallery_shuffle:
+        if self.gallery_shuffle and len(images) > 1:
             random.shuffle(images)
         self.gallery_images = images
         self.gallery_index = 0
         self.gallery_force_step = 0
 
-        def _render_slide_bgra(img_path: str, idx: int, total: int, out_w: int, out_h: int) -> bytes:
+        slide_cache = {}
+        cache_lock = threading.Lock()
+
+        def _render_slide_pil(img_path: str, idx: int, total: int, out_w: int, out_h: int):
+            """Renders a slide to a PIL RGBA image (with B and R swapped for direct BGRA bytes export)."""
+            cache_key = (img_path, idx, total, out_w, out_h, self.aspect_mode, self.gallery_interval, self.gallery_shuffle)
+            with cache_lock:
+                if cache_key in slide_cache:
+                    return slide_cache[cache_key]
+
             canvas = Image.new("RGB", (out_w, out_h), (15, 23, 42))
             try:
                 with Image.open(img_path) as im:
                     im = ImageOps.exif_transpose(im).convert("RGB")
                     if self.aspect_mode == "stretch":
-                        fitted = im.resize((out_w, out_h), Image.Resampling.LANCZOS)
+                        fitted = im.resize((out_w, out_h), Image.Resampling.BILINEAR)
                         canvas.paste(fitted, (0, 0))
                     elif self.aspect_mode == "crop":
-                        fitted = ImageOps.fit(im, (out_w, out_h), Image.Resampling.LANCZOS)
+                        fitted = ImageOps.fit(im, (out_w, out_h), Image.Resampling.BILINEAR)
                         canvas.paste(fitted, (0, 0))
                     else:
-                        im.thumbnail((out_w, out_h), Image.Resampling.LANCZOS)
+                        im.thumbnail((out_w, out_h), Image.Resampling.BILINEAR)
                         ox = (out_w - im.width) // 2
                         oy = (out_h - im.height) // 2
                         canvas.paste(im, (ox, oy))
             except Exception as e:
                 self.log(f"Slide load warning ({os.path.basename(img_path)}): {e}")
 
-            # Draw subtle slide counter badge in bottom-right corner
             draw = ImageDraw.Draw(canvas)
             try:
-                font = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 18)
+                font = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 16)
             except Exception:
                 font = ImageFont.load_default()
             fname = os.path.basename(img_path)
-            badge_txt = f"  [{idx + 1}/{total}] {fname}  •  {self.gallery_interval}s {'(Shuffle)' if self.gallery_shuffle else ''}  "
+            if len(fname) > 34:
+                fname = fname[:31] + "..."
+            mode_tag = "Single Picture" if total == 1 else f"{idx + 1} / {total}  •  {self.gallery_interval}s"
+            if self.gallery_shuffle and total > 1:
+                mode_tag += "  •  Shuffle"
+            badge_txt = f"  {mode_tag}  |  {fname}  "
             bbox = draw.textbbox((0, 0), badge_txt, font=font)
             bw = bbox[2] - bbox[0]
             bh = bbox[3] - bbox[1] + 12
-            bx = out_w - bw - 20
-            by = out_h - bh - 16
-            draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=8, fill=(15, 23, 42))
+            bx = out_w - bw - 18
+            by = out_h - bh - 14
+            draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=7, fill=(15, 23, 42), outline=(51, 65, 85), width=1)
             draw.text((bx, by + 5), badge_txt, font=font, fill=(248, 250, 252))
 
-            # Convert RGB -> BGRA raw bytes for FFmpeg
+            # Store as channel-swapped RGBA so .tobytes() is directly BGRA for FFmpeg
             r, g, b = canvas.split()
             a = Image.new("L", (out_w, out_h), 255)
-            bgra = Image.merge("RGBA", (b, g, r, a))
-            return bgra.tobytes()
+            bgra_img = Image.merge("RGBA", (b, g, r, a))
+            raw_bytes = bgra_img.tobytes()
+
+            with cache_lock:
+                if len(slide_cache) >= 24:
+                    slide_cache.pop(next(iter(slide_cache)))
+                slide_cache[cache_key] = (bgra_img, raw_bytes)
+            return (bgra_img, raw_bytes)
+
+        def _preload_slide_async(idx: int, total: int, out_w: int, out_h: int):
+            if not self.gallery_images:
+                return
+            norm_idx = idx % total
+            img_path = self.gallery_images[norm_idx]
+            threading.Thread(
+                target=_render_slide_pil,
+                args=(img_path, norm_idx, total, out_w, out_h),
+                daemon=True,
+            ).start()
 
         def _worker():
             out_w, out_h = [int(x) for x in self.main_res.split("x")]
+            total_imgs = len(self.gallery_images)
             folder_name = os.path.basename(self.gallery_folder) or "Selected Photos"
+
+            # Pre-render the first slide BEFORE spawning FFmpeg so frame 0 is ready immediately
+            cur_idx = 0
+            self.gallery_index = 0
+            first_file = self.gallery_images[0]
+            cur_pil, cur_frame_bytes = _render_slide_pil(first_file, 0, total_imgs, out_w, out_h)
+            if total_imgs > 1:
+                _preload_slide_async(1, total_imgs, out_w, out_h)
 
             with self.stream_lock:
                 self._stop_ffmpeg_locked()
@@ -1030,6 +1116,7 @@ paths:
                 if audio_info:
                     aport, arate, achan = audio_info
                     audio_input_args = [
+                        "-thread_queue_size", "512",
                         "-f", "s16le",
                         "-ar", str(arate),
                         "-ac", str(achan),
@@ -1046,6 +1133,7 @@ paths:
                         self.ffmpeg_exe,
                         "-hide_banner",
                         "-loglevel", "warning",
+                        "-thread_queue_size", "256",
                         "-f", "rawvideo",
                         "-pix_fmt", "bgra",
                         "-s", f"{out_w}x{out_h}",
@@ -1059,7 +1147,7 @@ paths:
                 self.current_mode = "GALLERY"
                 self.active_source = source
                 self.is_paused = False
-                self.current_title = f"Gallery: {folder_name} ({len(self.gallery_images)} photos, {self.gallery_interval}s)"
+                self.current_title = f"Gallery [1/{total_imgs}]: {os.path.basename(first_file)}"
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -1073,45 +1161,74 @@ paths:
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
+                self._attach_ffmpeg_log_drainer(proc_ref, "Gallery")
 
             self.log(
-                f"Started Photo Gallery Slideshow ({len(self.gallery_images)} photos, "
+                f"Started Photo Gallery Slideshow ({total_imgs} photo(s) from '{folder_name}', "
                 f"timer={self.gallery_interval}s, shuffle={self.gallery_shuffle})"
             )
 
             frame_interval = 1.0 / float(self.fps)
-            cur_idx = -1
-            cur_frame_bytes = None
-            slide_deadline = 0.0
+            next_frame_t = time.perf_counter()
+            slide_deadline = time.perf_counter() + float(self.gallery_interval)
+            transition_queue = []
 
             try:
                 while not stop_evt.is_set() and proc_ref.poll() is None:
-                    t0 = time.perf_counter()
-                    now = time.time()
+                    now_perf = time.perf_counter()
 
-                    if cur_frame_bytes is None or self.gallery_force_step != 0 or (not self.is_paused and now >= slide_deadline):
-                        if cur_frame_bytes is None:
-                            cur_idx = 0
-                        elif self.gallery_force_step != 0:
-                            cur_idx = (cur_idx + self.gallery_force_step) % len(self.gallery_images)
+                    # Check if we should advance to another slide (only when >1 photo or forced step)
+                    should_step = (self.gallery_force_step != 0) or (
+                        total_imgs > 1 and not self.is_paused and now_perf >= slide_deadline
+                    )
+                    if should_step:
+                        if self.gallery_force_step != 0:
+                            step_dir = self.gallery_force_step
                             self.gallery_force_step = 0
+                            next_idx = (cur_idx + step_dir) % total_imgs
                         else:
-                            cur_idx = (cur_idx + 1) % len(self.gallery_images)
-                            if cur_idx == 0 and self.gallery_shuffle and len(self.gallery_images) > 1:
+                            next_idx = (cur_idx + 1) % total_imgs
+                            if next_idx == 0 and self.gallery_shuffle and total_imgs > 2:
                                 random.shuffle(self.gallery_images)
+                                slide_cache.clear()
 
+                        next_file = self.gallery_images[next_idx]
+                        next_pil, next_bytes = _render_slide_pil(next_file, next_idx, total_imgs, out_w, out_h)
+
+                        # Build smooth 6-frame crossfade if multiple photos
+                        if total_imgs > 1 and self.gallery_transition and cur_pil is not None:
+                            transition_queue = [
+                                Image.blend(cur_pil, next_pil, alpha / 6.0).tobytes()
+                                for alpha in range(1, 6)
+                            ]
+
+                        cur_idx = next_idx
+                        cur_pil = next_pil
+                        cur_frame_bytes = next_bytes
                         self.gallery_index = cur_idx
-                        img_file = self.gallery_images[cur_idx]
-                        cur_frame_bytes = _render_slide_bgra(img_file, cur_idx, len(self.gallery_images), out_w, out_h)
-                        slide_deadline = time.time() + float(self.gallery_interval)
-                        self.current_title = f"Gallery [{cur_idx + 1}/{len(self.gallery_images)}]: {os.path.basename(img_file)}"
+                        slide_deadline = time.perf_counter() + float(self.gallery_interval)
+                        self.current_title = (
+                            f"{'[PAUSED] ' if self.is_paused else ''}"
+                            f"Gallery [{cur_idx + 1}/{total_imgs}]: {os.path.basename(next_file)}"
+                        )
                         self.status_cb(self.current_mode, self.current_title)
 
-                    proc_ref.stdin.write(cur_frame_bytes)
-                    elapsed = time.perf_counter() - t0
-                    sleep_time = frame_interval - elapsed
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
+                        # Pre-render the upcoming slide in background
+                        if total_imgs > 1:
+                            _preload_slide_async((cur_idx + 1) % total_imgs, total_imgs, out_w, out_h)
+                    elif self.is_paused:
+                        # Keep pushing slide_deadline forward while paused
+                        slide_deadline = now_perf + float(self.gallery_interval)
+
+                    frame_to_send = transition_queue.pop(0) if transition_queue else cur_frame_bytes
+                    proc_ref.stdin.write(frame_to_send)
+
+                    next_frame_t += frame_interval
+                    sleep_s = next_frame_t - time.perf_counter()
+                    if sleep_s > 0:
+                        time.sleep(sleep_s)
+                    elif sleep_s < -0.5:
+                        next_frame_t = time.perf_counter()
             except Exception as e:
                 if not stop_evt.is_set():
                     self.log(f"Gallery slideshow ended: {e}")
@@ -1128,6 +1245,10 @@ paths:
             self.gallery_force_step = 1 if step >= 0 else -1
 
     def _start_wasapi_audio_tcp_feeder(self, stop_evt: threading.Event):
+        """
+        Captures live Windows PC speaker output via WASAPI loopback and feeds raw s16le PCM over
+        a localhost TCP socket using a strict wall-clock pacer so FFmpeg NEVER starves when speakers are silent.
+        """
         if not self.capture_pc_audio or pyaudio is None or self.audio_codec == "none":
             return None
 
@@ -1152,6 +1273,9 @@ paths:
             rate = int(loopback_dev.get("defaultSampleRate", 48000) or 48000)
             channels = min(2, max(1, int(loopback_dev.get("maxInputChannels", 2) or 2)))
             dev_idx = loopback_dev["index"]
+            chunk_sec = 0.020
+            frames_per_chunk = int(rate * chunk_sec)
+            bytes_per_chunk = frames_per_chunk * channels * 2
 
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             srv.bind(("127.0.0.1", 0))
@@ -1159,7 +1283,7 @@ paths:
             srv.settimeout(5.0)
             port = srv.getsockname()[1]
 
-            audio_q = queue.Queue(maxsize=50)
+            audio_q = queue.Queue(maxsize=100)
 
             def _pa_cb(in_data, frame_count, time_info, status):
                 try:
@@ -1174,22 +1298,41 @@ paths:
                 rate=rate,
                 input=True,
                 input_device_index=dev_idx,
-                frames_per_buffer=int(rate * 0.04),
+                frames_per_buffer=frames_per_chunk,
                 stream_callback=_pa_cb,
             )
             stream.start_stream()
 
             def _tcp_worker():
                 conn = None
-                silence_40ms = b"\x00" * (int(rate * 0.04) * channels * 2)
+                silence_chunk = b"\x00" * bytes_per_chunk
                 try:
                     conn, _ = srv.accept()
+                    next_tick = time.perf_counter()
                     while not stop_evt.is_set():
-                        try:
-                            pcm = audio_q.get(timeout=0.04)
-                        except queue.Empty:
-                            pcm = silence_40ms
-                        conn.sendall(pcm)
+                        # Drain any immediately available WASAPI chunks
+                        sent_any = False
+                        while not stop_evt.is_set():
+                            try:
+                                pcm = audio_q.get_nowait()
+                                conn.sendall(pcm)
+                                next_tick += chunk_sec
+                                sent_any = True
+                            except queue.Empty:
+                                break
+
+                        now_t = time.perf_counter()
+                        # If speakers are silent and wall clock passed next_tick, inject exact silence chunk
+                        while now_t >= next_tick and not stop_evt.is_set():
+                            conn.sendall(silence_chunk)
+                            next_tick += chunk_sec
+                            sent_any = True
+
+                        sleep_s = next_tick - time.perf_counter()
+                        if sleep_s > 0.002:
+                            time.sleep(min(0.015, sleep_s))
+                        elif not sent_any:
+                            time.sleep(0.003)
                 except Exception:
                     pass
                 finally:
@@ -1238,6 +1381,7 @@ paths:
                 if audio_info:
                     aport, arate, achan = audio_info
                     audio_input_args = [
+                        "-thread_queue_size", "512",
                         "-f", "s16le",
                         "-ar", str(arate),
                         "-ac", str(achan),
@@ -1254,6 +1398,7 @@ paths:
                         self.ffmpeg_exe,
                         "-hide_banner",
                         "-loglevel", "warning",
+                        "-thread_queue_size", "256",
                         "-f", "rawvideo",
                         "-pix_fmt", "bgra",
                         "-s", f"{cap_w}x{cap_h}",
@@ -1281,16 +1426,17 @@ paths:
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
+                self._attach_ffmpeg_log_drainer(proc_ref, "Screen")
 
             self.log(f"[{source}] Started Desktop Mirroring [{desc}] @ {self.fps}fps to NVR.")
 
             frame_interval = 1.0 / float(self.fps)
+            next_frame_t = time.perf_counter()
             sct = None
             last_buf = None
             try:
                 sct = mss.MSS()
                 while not stop_evt.is_set() and proc_ref.poll() is None:
-                    t0 = time.perf_counter()
                     if not self.is_paused or last_buf is None:
                         shot = sct.grab(capture_rect)
                         buf = bytearray(shot.raw)
@@ -1298,10 +1444,13 @@ paths:
                             draw_cursor_on_bgra(buf, cap_w, cap_h, mon_left, mon_top)
                         last_buf = buf
                     proc_ref.stdin.write(last_buf)
-                    elapsed = time.perf_counter() - t0
-                    sleep_time = frame_interval - elapsed
+
+                    next_frame_t += frame_interval
+                    sleep_time = next_frame_t - time.perf_counter()
                     if sleep_time > 0:
                         time.sleep(sleep_time)
+                    elif sleep_time < -0.5:
+                        next_frame_t = time.perf_counter()
             except Exception as e:
                 if not stop_evt.is_set():
                     self.log(f"Desktop capture ended: {e}")
@@ -1325,7 +1474,7 @@ paths:
     ):
         """
         Receives live WebM chunks from either:
-          - Chrome Extension HTML5 <video>.captureStream() (PiP-style live player mirroring with instant seek/pause sync!)
+          - Chrome Extension HTML5 <video>.captureStream() (PiP-style live player mirroring)
           - Web Cast Studio getDisplayMedia() (Meeting-style Tab / Window / Screen share)
         and pipes them to the NVR RTSP server.
         """
@@ -1362,6 +1511,7 @@ paths:
                 startupinfo=startupinfo,
             )
             proc_ref = self.ffmpeg_proc
+            self._attach_ffmpeg_log_drainer(proc_ref, "BrowserCast")
 
         self.log(f"[{source}] Started Live Browser Cast: '{label}'")
 

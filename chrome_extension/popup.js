@@ -6,8 +6,31 @@ const titleTxt = document.getElementById("titleTxt");
 const posTxt = document.getElementById("posTxt");
 const connBadge = document.getElementById("connBadge");
 const chkLoop = document.getElementById("chkLoop");
+const pauseBtnLabel = document.getElementById("pauseBtnLabel");
+const toastMsg = document.getElementById("toastMsg");
+
+let toastTimer = null;
+function showToast(text, isError = false) {
+  if (!toastMsg) return;
+  toastMsg.textContent = text;
+  toastMsg.style.display = "block";
+  if (isError) {
+    toastMsg.style.background = "#fef2f2";
+    toastMsg.style.color = "#b91c1c";
+    toastMsg.style.borderColor = "#fecaca";
+  } else {
+    toastMsg.style.background = "#eff6ff";
+    toastMsg.style.color = "#1d4ed8";
+    toastMsg.style.borderColor = "#bfdbfe";
+  }
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastMsg.style.display = "none";
+  }, 3200);
+}
 
 chrome.storage.local.get(["hubUrl"], (res) => {
+  void chrome.runtime.lastError;
   if (res && res.hubUrl && serverInput) {
     serverInput.value = res.hubUrl;
   }
@@ -17,8 +40,11 @@ chrome.storage.local.get(["hubUrl"], (res) => {
 function saveHubUrl() {
   if (!serverInput) return;
   const val = serverInput.value.trim() || "http://127.0.0.1:8090";
-  chrome.storage.local.set({ hubUrl: val });
-  refreshStatus();
+  chrome.storage.local.set({ hubUrl: val }, () => {
+    void chrome.runtime.lastError;
+    showToast("Saved Hub URL: " + val);
+    refreshStatus();
+  });
 }
 
 if (serverInput) serverInput.addEventListener("change", saveHubUrl);
@@ -29,67 +55,163 @@ function getHub() {
   return (raw || "http://127.0.0.1:8090").replace(/\/+$/, "");
 }
 
-async function refreshStatus() {
+/**
+ * Safe API helper that routes through background.js (with direct fallback) and NEVER throws uncaught Promise rejections.
+ */
+async function hubRequest(path, method = "GET", body = null) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage(
+        { action: "hubApi", path, method, body },
+        (resp) => {
+          void chrome.runtime.lastError;
+          if (resp && resp.ok) {
+            resolve(resp);
+          } else {
+            resolve({ ok: false, error: (resp && resp.error) || "Hub offline" });
+          }
+        }
+      );
+    } catch (err) {
+      resolve({ ok: false, error: String(err) });
+    }
+  });
+}
+
+/**
+ * Safely sends a message to an active http/https tab. If the tab was opened BEFORE the extension
+ * was loaded, automatically injects content_youtube.js on demand so "Receiving end does not exist" NEVER happens.
+ */
+function sendToTabSafe(tab, payload, callback) {
+  if (!tab || !tab.id || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
+    if (callback) callback({ ok: false, restricted: true });
+    return;
+  }
+
   try {
-    const r = await fetch(`${getHub()}/api/status`);
-    const d = await r.json();
-    if (modeTxt) modeTxt.textContent = (d.mode || "ONLINE") + (d.is_paused ? " (PAUSED)" : "");
-    if (sourceTxt) sourceTxt.textContent = d.active_source || "System";
-    if (titleTxt) titleTxt.textContent = d.title || "Ready";
-    if (chkLoop && typeof d.loop_video === "boolean") {
-      chkLoop.checked = d.loop_video;
-    }
-    if (posTxt) {
-      if (d.mode === "YOUTUBE" || d.mode === "FILE") {
-        const m = Math.floor((d.playback_sec || 0) / 60);
-        const s = (d.playback_sec || 0) % 60;
-        posTxt.textContent = `⏱ Position: ${m}m ${s}s ${d.loop_video ? "• 🔁 Loop Active" : ""}`;
-      } else if (d.mode === "GALLERY" && d.gallery) {
-        posTxt.textContent = `🖼️ Slide ${d.gallery.index + 1}/${d.gallery.count} (${d.gallery.interval}s timer)`;
-      } else {
-        posTxt.textContent = "";
+    chrome.tabs.sendMessage(tab.id, payload, (resp) => {
+      const err = chrome.runtime.lastError;
+      if (!err) {
+        if (callback) callback(resp || { ok: true });
+        return;
       }
-    }
-    if (connBadge) {
-      connBadge.textContent = "ONLINE";
-      connBadge.style.background = "#22c55e";
-      connBadge.style.color = "#052e16";
-    }
-  } catch (e) {
-    if (modeTxt) modeTxt.textContent = "OFFLINE";
-    if (sourceTxt) sourceTxt.textContent = "-";
-    if (titleTxt) titleTxt.textContent = "Launch NVR Cast Hub on PC";
-    if (posTxt) posTxt.textContent = "";
-    if (connBadge) {
-      connBadge.textContent = "OFFLINE";
-      connBadge.style.background = "#ef4444";
-      connBadge.style.color = "#ffffff";
-    }
+      // Inject content_youtube.js into the already-open tab and retry once
+      try {
+        chrome.scripting.executeScript(
+          { target: { tabId: tab.id }, files: ["content_youtube.js"] },
+          () => {
+            void chrome.runtime.lastError;
+            try {
+              chrome.tabs.sendMessage(tab.id, payload, (resp2) => {
+                void chrome.runtime.lastError;
+                if (callback) callback(resp2 || { ok: true });
+              });
+            } catch (_) {
+              if (callback) callback({ ok: false });
+            }
+          }
+        );
+      } catch (_) {
+        if (callback) callback({ ok: false });
+      }
+    });
+  } catch (_) {
+    if (callback) callback({ ok: false });
   }
 }
 
-setInterval(refreshStatus, 1500);
+function getActiveTabSafe(cb) {
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      void chrome.runtime.lastError;
+      cb(tabs && tabs[0] ? tabs[0] : null);
+    });
+  } catch (_) {
+    cb(null);
+  }
+}
 
-// Active Stream Controls: Pause/Resume & Seek -10s / +10s
+async function refreshStatus() {
+  const res = await hubRequest("/api/status", "GET");
+  if (!res.ok || !res.status) {
+    if (modeTxt) {
+      modeTxt.textContent = "OFFLINE";
+      modeTxt.style.background = "#fee2e2";
+      modeTxt.style.color = "#b91c1c";
+    }
+    if (sourceTxt) sourceTxt.textContent = "-";
+    if (titleTxt) titleTxt.textContent = "Start NVR Cast Hub on your PC";
+    if (posTxt) posTxt.textContent = "Waiting for http://127.0.0.1:8090";
+    if (connBadge) {
+      connBadge.textContent = "OFFLINE";
+      connBadge.style.background = "#fee2e2";
+      connBadge.style.color = "#b91c1c";
+      connBadge.style.borderColor = "#fecaca";
+    }
+    return;
+  }
+
+  const d = res.status;
+  if (modeTxt) {
+    modeTxt.textContent = (d.mode || "ONLINE") + (d.is_paused ? " • PAUSED" : "");
+    if (d.is_paused) {
+      modeTxt.style.background = "#fef3c7";
+      modeTxt.style.color = "#b45309";
+    } else {
+      modeTxt.style.background = "#dcfce7";
+      modeTxt.style.color = "#15803d";
+    }
+  }
+  if (pauseBtnLabel) {
+    pauseBtnLabel.textContent = d.is_paused ? "Resume" : "Pause";
+  }
+  if (sourceTxt) sourceTxt.textContent = d.active_source || "System";
+  if (titleTxt) titleTxt.textContent = d.title || "Ready";
+  if (chkLoop && typeof d.loop_video === "boolean") {
+    chkLoop.checked = d.loop_video;
+  }
+  if (posTxt) {
+    if (d.mode === "YOUTUBE" || d.mode === "FILE") {
+      const m = Math.floor((d.playback_sec || 0) / 60);
+      const s = String((d.playback_sec || 0) % 60).padStart(2, "0");
+      posTxt.textContent = `Position: ${m}:${s}${d.loop_video ? "  •  Loop Enabled" : ""}`;
+    } else if (d.mode === "GALLERY" && d.gallery) {
+      posTxt.textContent = `Slide ${d.gallery.index + 1} of ${d.gallery.count} (${d.gallery.interval}s timer${d.gallery.shuffle ? ", Shuffle" : ""})`;
+    } else {
+      posTxt.textContent = `RTSP: ${d.rtsp_main || "Active"}`;
+    }
+  }
+  if (connBadge) {
+    connBadge.textContent = "ONLINE";
+    connBadge.style.background = "#dcfce7";
+    connBadge.style.color = "#15803d";
+    connBadge.style.borderColor = "#bbf7d0";
+  }
+}
+
+setInterval(refreshStatus, 1600);
+
+// 1. Active Session Transport Controls
 const btnTogglePause = document.getElementById("btnTogglePause");
 if (btnTogglePause) {
   btnTogglePause.addEventListener("click", async () => {
-    await fetch(`${getHub()}/api/player_sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: "toggle_pause", source: "Chrome Extension" }),
+    const r = await hubRequest("/api/player_sync", "POST", {
+      event: "toggle_pause",
+      source: "Chrome Extension",
     });
-    setTimeout(refreshStatus, 300);
+    if (!r.ok) showToast("NVR Cast Hub is not running on port 8090", true);
+    refreshStatus();
   });
 }
 
 async function sendSeekDelta(deltaSec) {
-  await fetch(`${getHub()}/api/player_sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ event: "seek", delta_sec: deltaSec, source: "Chrome Extension" }),
+  const r = await hubRequest("/api/player_sync", "POST", {
+    event: "seek",
+    delta_sec: deltaSec,
+    source: "Chrome Extension",
   });
-  setTimeout(refreshStatus, 400);
+  if (!r.ok) showToast("NVR Cast Hub is not running on port 8090", true);
+  refreshStatus();
 }
 
 const btnSeekBack = document.getElementById("btnSeekBack");
@@ -98,64 +220,57 @@ if (btnSeekBack) btnSeekBack.addEventListener("click", () => sendSeekDelta(-10))
 const btnSeekFwd = document.getElementById("btnSeekFwd");
 if (btnSeekFwd) btnSeekFwd.addEventListener("click", () => sendSeekDelta(10));
 
-// Cast Current Tab's Video with Live Seek/Pause Sync
+// 2. Cast Current Tab Video with Live Seek/Pause Sync
 const btnCastCurrentTab = document.getElementById("btnCastCurrentTab");
 if (btnCastCurrentTab) {
-  btnCastCurrentTab.addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url) return;
-
-    // Tell the content script on the tab to attach seek/pause sync listeners
-    try {
-      chrome.tabs.sendMessage(tab.id, { action: "triggerPageVideoSync", pipMode: false });
-    } catch (e) {}
-
-    let startSec = 0;
-    let detectedVideoSrc = null;
-
-    try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          const v = document.querySelector("video");
-          if (!v) return { time: 0, src: null };
-          const src = v.currentSrc || v.src || null;
-          return {
-            time: Math.floor(v.currentTime || 0),
-            src: src && !src.startsWith("blob:") ? src : null,
-          };
-        },
-      });
-      if (results && results[0] && results[0].result) {
-        startSec = results[0].result.time || 0;
-        detectedVideoSrc = results[0].result.src || null;
+  btnCastCurrentTab.addEventListener("click", () => {
+    getActiveTabSafe((tab) => {
+      if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
+        showToast("Open a YouTube or web video tab first to cast it.", true);
+        return;
       }
-    } catch (e) {}
 
-    const targetUrl = detectedVideoSrc || tab.url;
-    const loop = chkLoop ? chkLoop.checked : false;
-    await fetch(`${getHub()}/api/youtube`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: targetUrl,
-        start_sec: startSec,
-        loop,
-        source: "Chrome Extension (Tab Video Sync)",
-      }),
+      sendToTabSafe(tab, { action: "attachSyncOnly" }, async (info) => {
+        const startSec = info && typeof info.time === "number" ? info.time : 0;
+        const detectedSrc = info && info.src ? info.src : null;
+        const targetUrl = detectedSrc || tab.url;
+        const loop = chkLoop ? chkLoop.checked : false;
+
+        showToast("Casting tab video to NVR...");
+        const r = await hubRequest("/api/youtube", "POST", {
+          url: targetUrl,
+          start_sec: startSec,
+          loop,
+          source: "Chrome Extension (Tab Video Sync)",
+        });
+        if (!r.ok) {
+          showToast("Could not connect to NVR Cast Hub on port 8090.", true);
+        } else {
+          showToast("Streaming to NVR with live seek & pause sync!");
+        }
+        refreshStatus();
+      });
     });
-    setTimeout(refreshStatus, 500);
   });
 }
 
-// PiP-Style Live HTML5 <video>.captureStream() Mirroring
+// 3. PiP-Style Live HTML5 <video>.captureStream() Mirroring
 const btnPipMirror = document.getElementById("btnPipMirror");
 if (btnPipMirror) {
-  btnPipMirror.addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.id) return;
-    chrome.tabs.sendMessage(tab.id, { action: "triggerPageVideoSync", pipMode: true }, () => {
-      setTimeout(refreshStatus, 600);
+  btnPipMirror.addEventListener("click", () => {
+    getActiveTabSafe((tab) => {
+      if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
+        showToast("Open a web page with an active video player first.", true);
+        return;
+      }
+      sendToTabSafe(tab, { action: "triggerPageVideoSync", pipMode: true }, (res) => {
+        if (res && res.ok) {
+          showToast("Started PiP Live Video Stream to NVR!");
+        } else {
+          showToast("No HTML5 video found on this tab.", true);
+        }
+        setTimeout(refreshStatus, 500);
+      });
     });
   });
 }
@@ -168,12 +283,13 @@ if (btnShareMeeting) {
 }
 
 async function mirrorMonitors(monitors) {
-  await fetch(`${getHub()}/api/screen`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ monitors, source: "Chrome Extension" }),
+  showToast("Switching NVR to PC Monitor Mirror...");
+  const r = await hubRequest("/api/screen", "POST", {
+    monitors,
+    source: "Chrome Extension",
   });
-  setTimeout(refreshStatus, 500);
+  if (!r.ok) showToast("NVR Cast Hub is offline.", true);
+  refreshStatus();
 }
 
 const btnMon1 = document.getElementById("btnMon1");
@@ -191,18 +307,23 @@ if (btnCastCustom) {
     const customInput = document.getElementById("customQuery");
     const q = customInput ? customInput.value.trim() : "";
     const loop = chkLoop ? chkLoop.checked : false;
-    if (!q) return;
-    await fetch(`${getHub()}/api/youtube`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: q, start_sec: 0, loop, source: "Chrome Extension" }),
+    if (!q) {
+      showToast("Enter a YouTube URL or search query first.", true);
+      return;
+    }
+    showToast("Starting stream on NVR...");
+    const r = await hubRequest("/api/youtube", "POST", {
+      url: q,
+      start_sec: 0,
+      loop,
+      source: "Chrome Extension",
     });
-    if (customInput) customInput.value = "";
-    setTimeout(refreshStatus, 500);
+    if (r.ok && customInput) customInput.value = "";
+    if (!r.ok) showToast("NVR Cast Hub is offline.", true);
+    refreshStatus();
   });
 }
 
-// Photo Gallery Slideshow Quick Controls
 const btnOpenStudio = document.getElementById("btnOpenStudio");
 if (btnOpenStudio) {
   btnOpenStudio.addEventListener("click", () => {
@@ -211,12 +332,9 @@ if (btnOpenStudio) {
 }
 
 async function stepGallery(step) {
-  await fetch(`${getHub()}/api/gallery`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "step", step }),
-  });
-  setTimeout(refreshStatus, 300);
+  const r = await hubRequest("/api/gallery", "POST", { action: "step", step });
+  if (!r.ok) showToast("NVR Cast Hub is offline.", true);
+  refreshStatus();
 }
 
 const btnGalPrev = document.getElementById("btnGalPrev");
@@ -228,17 +346,11 @@ if (btnGalNext) btnGalNext.addEventListener("click", () => stepGallery(1));
 const btnStop = document.getElementById("btnStop");
 if (btnStop) {
   btnStop.addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.id) {
-      try {
-        chrome.tabs.sendMessage(tab.id, { action: "stopPageVideoSync" });
-      } catch (e) {}
-    }
-    await fetch(`${getHub()}/api/standby`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: "Chrome Extension" }),
+    getActiveTabSafe((tab) => {
+      if (tab) sendToTabSafe(tab, { action: "stopPageVideoSync" });
     });
-    setTimeout(refreshStatus, 400);
+    await hubRequest("/api/standby", "POST", { source: "Chrome Extension" });
+    showToast("Stopped cast — NVR returned to Standby.");
+    refreshStatus();
   });
 }

@@ -12,20 +12,26 @@ from web_studio.server import WebRemoteHandler
 class NVRCastDesktopApp:
     """
     Native Windows Desktop GUI Control Center (v0.1.0-beta).
-    Controls:
+    Clean Whitish / Light Studio Interface:
       - Universal RTSP Casting (Hikvision, Dahua, Uniview, Reolink, ONVIF)
       - Active Stream Session Bar (shows active source + Pause/Resume, Seek -10s/+10s, Stop)
       - Direct YouTube / Web Video / Local Movie Streaming with Infinite Loop
-      - Photo Gallery / Folder Slideshow Gadget (Folder/Images picker, Timer in sec, Shuffle, Next/Prev)
+      - Rock-Solid Photo Gallery & Single Picture Slideshow Studio (Folder/Pictures picker, Timer, Shuffle, Next/Prev)
       - Multi-Monitor Desktop Mirroring + WASAPI Speaker Audio
       - Browser Web Cast Studio (:8090) & Chrome Extension Sync
     """
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title(f"NVR Cast Hub v{APP_VERSION} — Universal NVR & CCTV Caster (Desktop + Web + Extension)")
-        self.root.geometry("950x840")
-        self.root.configure(bg="#0f172a")
+        self.root.title(f"NVR Cast Hub v{APP_VERSION} — Universal RTSP Media, Slideshow & Multi-Monitor Caster")
+        self.root.geometry("980x850")
+        self.root.configure(bg="#f1f5f9")
+
+        style = ttk.Style()
+        try:
+            style.theme_use("vista")
+        except Exception:
+            pass
 
         self.engine = NVRCastEngine(
             log_callback=self.append_log_threadsafe,
@@ -39,6 +45,7 @@ class NVRCastDesktopApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._init_services, daemon=True).start()
+        self.root.after(1000, self._periodic_status_tick)
 
     def _open_dialog_from_web_threadsafe(self, kind: str) -> str:
         res_q = queue.Queue()
@@ -47,6 +54,12 @@ class NVRCastDesktopApp:
             try:
                 if kind == "folder":
                     p = filedialog.askdirectory(title="Select Picture Folder for NVR Slideshow")
+                elif kind == "pictures":
+                    files = filedialog.askopenfilenames(
+                        title="Select Picture(s) for NVR Slideshow",
+                        filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp *.webp *.gif"), ("All Files", "*.*")],
+                    )
+                    p = ";".join(files) if files else ""
                 else:
                     p = filedialog.askopenfilename(
                         title="Select Video File to Stream to NVR",
@@ -70,7 +83,7 @@ class NVRCastDesktopApp:
             WebRemoteHandler.engine = self.engine
             httpd = ThreadingHTTPServer(("0.0.0.0", self.engine.web_port), WebRemoteHandler)
             self.engine.log(
-                f"Web Cast Studio & Remote active at http://localhost:{self.engine.web_port} "
+                f"Web Cast Studio active at http://localhost:{self.engine.web_port} "
                 f"(and http://{self.engine.lan_ip}:{self.engine.web_port})"
             )
             httpd.serve_forever()
@@ -86,336 +99,323 @@ class NVRCastDesktopApp:
         self.sub_rtsp_var.set(sub_rtsp)
         self.web_remote_var.set(web_url)
 
-    def _build_ui(self):
-        header = tk.Frame(self.root, bg="#1e293b", padx=18, pady=8)
-        header.pack(fill=tk.X)
+    def _make_card(self, parent, pady=(0, 8), padx=16):
+        card = tk.Frame(
+            parent,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=14,
+            pady=10,
+        )
+        card.pack(fill=tk.X, padx=padx, pady=pady)
+        return card
 
-        top_bar = tk.Frame(header, bg="#1e293b")
+    def _make_btn(self, parent, text, command, variant="secondary", padx=12, pady=4):
+        if variant == "primary":
+            bg, fg, border = "#2563eb", "#ffffff", "#1d4ed8"
+        elif variant == "danger":
+            bg, fg, border = "#fef2f2", "#dc2626", "#fecaca"
+        elif variant == "accent":
+            bg, fg, border = "#eff6ff", "#1d4ed8", "#bfdbfe"
+        else:
+            bg, fg, border = "#f8fafc", "#0f172a", "#cbd5e1"
+
+        btn = tk.Button(
+            parent,
+            text=text,
+            font=("Segoe UI", 9, "bold"),
+            bg=bg,
+            fg=fg,
+            activebackground=border,
+            activeforeground=fg,
+            relief=tk.SOLID,
+            bd=1,
+            padx=padx,
+            pady=pady,
+            cursor="hand2",
+            command=command,
+        )
+        return btn
+
+    def _build_ui(self):
+        # Top White Header Bar
+        header = tk.Frame(
+            self.root,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=18,
+            pady=10,
+        )
+        header.pack(fill=tk.X, padx=16, pady=(12, 8))
+
+        top_bar = tk.Frame(header, bg="#ffffff")
         top_bar.pack(fill=tk.X)
 
-        tk.Label(
-            top_bar,
-            text=f"📺 NVR Cast Hub v{APP_VERSION} — Universal RTSP Media, Gallery, Multi-Monitor & Web Caster",
-            font=("Segoe UI", 12, "bold"),
-            bg="#1e293b",
-            fg="#38bdf8",
-        ).pack(side=tk.LEFT, anchor="w")
+        # Custom Vector-Drawn Cast Icon on Canvas
+        icon_cv = tk.Canvas(top_bar, width=32, height=32, bg="#ffffff", highlightthickness=0)
+        icon_cv.pack(side=tk.LEFT, padx=(0, 10))
+        icon_cv.create_rectangle(2, 2, 30, 30, fill="#2563eb", outline="#1d4ed8", width=1)
+        icon_cv.create_rectangle(7, 8, 25, 21, outline="#ffffff", width=2)
+        icon_cv.create_oval(7, 19, 11, 23, fill="#ffffff", outline="#ffffff")
+        icon_cv.create_arc(3, 15, 15, 27, start=0, extent=90, style=tk.ARC, outline="#ffffff", width=2)
 
-        tk.Button(
+        title_col = tk.Frame(top_bar, bg="#ffffff")
+        title_col.pack(side=tk.LEFT, anchor="w")
+
+        tk.Label(
+            title_col,
+            text=f"NVR Cast Hub  v{APP_VERSION}",
+            font=("Segoe UI", 13, "bold"),
+            bg="#ffffff",
+            fg="#0f172a",
+        ).pack(anchor="w")
+
+        tk.Label(
+            title_col,
+            text="Universal RTSP Video, Photo Slideshow & Multi-Monitor Caster  •  Hikvision / Dahua / Uniview / Reolink / ONVIF",
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg="#64748b",
+        ).pack(anchor="w")
+
+        self._make_btn(
             top_bar,
-            text="🌐 Open Web Cast Studio (:8090)",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0284c7",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=12,
-            pady=2,
+            text="Open Web Cast Studio (:8090)  ↗",
+            variant="accent",
+            padx=14,
+            pady=5,
             command=lambda: os.startfile(f"http://localhost:{self.engine.web_port}"),
         ).pack(side=tk.RIGHT)
 
-        tk.Label(
-            header,
-            text="Works with Hikvision, Dahua, Uniview, Reolink & any ONVIF/RTSP NVR — Synchronized across Desktop App, Web Studio & Chrome Extension.",
-            font=("Segoe UI", 8),
-            bg="#1e293b",
-            fg="#94a3b8",
-        ).pack(anchor="w", pady=(2, 0))
+        # Card 1: RTSP Endpoints & Active Session Bar
+        session_card = self._make_card(self.root)
 
-        # 1. RTSP Connection Info
-        conn_frame = tk.LabelFrame(
-            self.root,
-            text=" 1. Universal NVR RTSP Stream Addresses & Web Cast Studio ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#4ade80",
-            padx=12,
-            pady=4,
-        )
-        conn_frame.pack(fill=tk.X, padx=16, pady=(6, 3))
+        rtsp_row = tk.Frame(session_card, bg="#ffffff")
+        rtsp_row.pack(fill=tk.X, pady=(0, 8))
 
         self.main_rtsp_var = tk.StringVar(value=f"rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main")
         self.sub_rtsp_var = tk.StringVar(value=f"rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/sub")
         self.web_remote_var = tk.StringVar(value=f"http://localhost:{self.engine.web_port}")
 
-        self._add_copy_row(conn_frame, "Main Stream (HD):", self.main_rtsp_var, 0)
-        self._add_copy_row(conn_frame, "Sub Stream (Grid 360p):", self.sub_rtsp_var, 1)
-        self._add_copy_row(conn_frame, "Web Cast Studio URL:", self.web_remote_var, 2)
+        self._add_endpoint_pill(rtsp_row, "Main Stream (HD):", self.main_rtsp_var)
+        self._add_endpoint_pill(rtsp_row, "Sub Stream (Grid):", self.sub_rtsp_var)
+        self._add_endpoint_pill(rtsp_row, "Web Studio:", self.web_remote_var)
 
-        # Active Session & Playback Control Bar
-        status_frame = tk.Frame(self.root, bg="#1e293b", padx=12, pady=6)
-        status_frame.pack(fill=tk.X, padx=16, pady=3)
+        sep = tk.Frame(session_card, bg="#e2e8f0", height=1)
+        sep.pack(fill=tk.X, pady=6)
+
+        status_bar = tk.Frame(session_card, bg="#ffffff")
+        status_bar.pack(fill=tk.X, pady=(2, 0))
 
         self.mode_badge = tk.Label(
-            status_frame,
-            text=" STARTING... ",
+            status_bar,
+            text=" STARTING ",
             font=("Segoe UI", 9, "bold"),
-            bg="#f59e0b",
-            fg="#0f172a",
-            padx=8,
-            pady=2,
+            bg="#dcfce7",
+            fg="#15803d",
+            padx=10,
+            pady=3,
         )
         self.mode_badge.pack(side=tk.LEFT)
 
         self.title_label = tk.Label(
-            status_frame,
+            status_bar,
             text="Initializing Universal RTSP Server...",
-            font=("Segoe UI", 9, "bold"),
-            bg="#1e293b",
-            fg="#f8fafc",
-            padx=8,
+            font=("Segoe UI", 10, "bold"),
+            bg="#ffffff",
+            fg="#0f172a",
+            padx=10,
         )
         self.title_label.pack(side=tk.LEFT)
 
-        # Right-aligned playback controls inside Active Session bar
-        tk.Button(
-            status_frame,
-            text="⏹ Stop / Standby",
-            font=("Segoe UI", 8, "bold"),
-            bg="#dc2626",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
+        self.pos_label = tk.Label(
+            status_bar,
+            text="",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#2563eb",
+            padx=4,
+        )
+        self.pos_label.pack(side=tk.LEFT)
+
+        # Transport Controls on the Right
+        self._make_btn(
+            status_bar,
+            text="■  Stop / Standby",
+            variant="danger",
+            padx=10,
+            pady=3,
             command=lambda: threading.Thread(target=self.engine.start_standby_stream, args=("Desktop App",), daemon=True).start(),
         ).pack(side=tk.RIGHT, padx=(4, 0))
 
-        tk.Button(
-            status_frame,
-            text="⏩ +10s",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=7,
+        self._make_btn(
+            status_bar,
+            text="+10s  ▷",
+            variant="secondary",
+            padx=9,
+            pady=3,
             command=lambda: self.engine.seek_stream(delta_sec=10, source="Desktop App"),
         ).pack(side=tk.RIGHT, padx=2)
 
-        tk.Button(
-            status_frame,
-            text="⏪ -10s",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=7,
+        self._make_btn(
+            status_bar,
+            text="◁  -10s",
+            variant="secondary",
+            padx=9,
+            pady=3,
             command=lambda: self.engine.seek_stream(delta_sec=-10, source="Desktop App"),
         ).pack(side=tk.RIGHT, padx=2)
 
-        self.pause_btn = tk.Button(
-            status_frame,
-            text="⏯ Pause / Resume",
-            font=("Segoe UI", 8, "bold"),
-            bg="#f59e0b",
-            fg="#0f172a",
-            relief=tk.FLAT,
-            padx=9,
+        self.pause_btn = self._make_btn(
+            status_bar,
+            text="❚❚  Pause / Resume",
+            variant="secondary",
+            padx=11,
+            pady=3,
             command=self.on_toggle_pause,
         )
         self.pause_btn.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # 2. YouTube, Web Video & Local Video Loop
-        yt_frame = tk.LabelFrame(
-            self.root,
-            text=" 2. Cast YouTube, Live TV, Web Video URL, or Local Movie (with Infinite Loop & Seek) ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#38bdf8",
-            padx=12,
-            pady=6,
-        )
-        yt_frame.pack(fill=tk.X, padx=16, pady=3)
+        # Card 2: YouTube, Web Video & Local Movie Caster
+        yt_card = self._make_card(self.root)
 
-        input_row = tk.Frame(yt_frame, bg="#0f172a")
-        input_row.pack(fill=tk.X, pady=(2, 2))
+        tk.Label(
+            yt_card,
+            text="1.  YOUTUBE, WEB STREAM & LOCAL VIDEO CASTER  (WITH SEEK & 24/7 INFINITE LOOP)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+        ).pack(anchor="w", pady=(0, 6))
+
+        yt_row = tk.Frame(yt_card, bg="#ffffff")
+        yt_row.pack(fill=tk.X)
 
         self.yt_entry = tk.Entry(
-            input_row,
+            yt_row,
             font=("Segoe UI", 10),
-            bg="#1e293b",
-            fg="#ffffff",
-            insertbackground="#ffffff",
-            relief=tk.FLAT,
+            bg="#f8fafc",
+            fg="#0f172a",
+            insertbackground="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
         )
         self.yt_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4, padx=(0, 6))
         self.yt_entry.bind("<Return>", lambda e: self.on_stream_youtube())
 
-        tk.Button(
-            input_row,
-            text="Paste",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
-            command=self.paste_clipboard,
-        ).pack(side=tk.LEFT, ipady=3, padx=(0, 6))
+        self._make_btn(yt_row, "Paste", self.paste_clipboard, "secondary", padx=10, pady=3).pack(side=tk.LEFT, padx=(0, 6))
 
         self.loop_video_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
-            input_row,
-            text="🔁 Loop Video",
+            yt_row,
+            text="⟲  Loop Video",
             variable=self.loop_video_var,
             font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#fde047",
-            selectcolor="#1e293b",
-            activebackground="#0f172a",
-            activeforeground="#fde047",
+            bg="#ffffff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#ffffff",
             command=self.on_settings_change,
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
-            input_row,
-            text="▶ Stream Video to NVR",
-            font=("Segoe UI", 9, "bold"),
-            bg="#ef4444",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=12,
-            command=self.on_stream_youtube,
-        ).pack(side=tk.LEFT, ipady=3, padx=(0, 6))
-
-        tk.Button(
-            input_row,
-            text="📂 Local Video File...",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0284c7",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-            command=self.on_stream_file,
-        ).pack(side=tk.LEFT, ipady=3)
-
-        # 3. Photo Gallery / Folder Slideshow Gadget
-        gal_frame = tk.LabelFrame(
-            self.root,
-            text=" 3. Photo Gallery / Folder Slideshow Gadget (Set Timer, Shuffle Pictures & Cast to NVR) ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#10b981",
-            padx=12,
-            pady=6,
+        self._make_btn(yt_row, "▶  Stream Video to NVR", self.on_stream_youtube, "primary", padx=14, pady=4).pack(
+            side=tk.LEFT, padx=(0, 6)
         )
-        gal_frame.pack(fill=tk.X, padx=16, pady=3)
+        self._make_btn(yt_row, "Browse Video File...", self.on_stream_file, "secondary", padx=11, pady=4).pack(side=tk.LEFT)
 
-        gal_row = tk.Frame(gal_frame, bg="#0f172a")
-        gal_row.pack(fill=tk.X, pady=(2, 2))
+        # Card 3: Picture & Photo Gallery Slideshow Studio
+        gal_card = self._make_card(self.root)
+
+        tk.Label(
+            gal_card,
+            text="2.  PICTURE & PHOTO GALLERY SLIDESHOW STUDIO  (SINGLE PHOTO OR FOLDER WITH TIMER & SHUFFLE)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+        ).pack(anchor="w", pady=(0, 6))
+
+        gal_row = tk.Frame(gal_card, bg="#ffffff")
+        gal_row.pack(fill=tk.X)
 
         self.gal_folder_var = tk.StringVar(value="")
         self.gal_entry = tk.Entry(
             gal_row,
             textvariable=self.gal_folder_var,
             font=("Segoe UI", 9),
-            bg="#1e293b",
-            fg="#ffffff",
-            insertbackground="#ffffff",
-            relief=tk.FLAT,
+            bg="#f8fafc",
+            fg="#0f172a",
+            insertbackground="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
         )
         self.gal_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4, padx=(0, 6))
 
-        tk.Button(
-            gal_row,
-            text="📁 Folder...",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
-            command=self.on_pick_gallery_folder,
-        ).pack(side=tk.LEFT, ipady=3, padx=(0, 4))
+        self._make_btn(gal_row, "Select Folder...", self.on_pick_gallery_folder, "secondary", padx=10, pady=3).pack(
+            side=tk.LEFT, padx=(0, 5)
+        )
+        self._make_btn(gal_row, "Select Picture(s)...", self.on_pick_gallery_files, "secondary", padx=10, pady=3).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
 
-        tk.Button(
-            gal_row,
-            text="🖼️ Pictures...",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
-            command=self.on_pick_gallery_files,
-        ).pack(side=tk.LEFT, ipady=3, padx=(0, 8))
-
-        tk.Label(gal_row, text="Timer (s):", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        tk.Label(gal_row, text="Timer (s):", font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.gal_timer_spin = tk.Spinbox(
             gal_row,
             from_=1,
             to=3600,
             width=4,
             font=("Segoe UI", 9, "bold"),
-            bg="#1e293b",
-            fg="#fde047",
-            buttonbackground="#334155",
-            relief=tk.FLAT,
+            bg="#f8fafc",
+            fg="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
         )
         self.gal_timer_spin.delete(0, tk.END)
         self.gal_timer_spin.insert(0, "5")
         self.gal_timer_spin.pack(side=tk.LEFT, ipady=2, padx=(4, 8))
 
-        self.gal_shuffle_var = tk.BooleanVar(value=True)
+        self.gal_shuffle_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             gal_row,
-            text="🔀 Shuffle",
+            text="⇄  Shuffle",
             variable=self.gal_shuffle_var,
             font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#a7f3d0",
-            selectcolor="#1e293b",
-            activebackground="#0f172a",
+            bg="#ffffff",
+            fg="#0f172a",
+            selectcolor="#ffffff",
+            activebackground="#ffffff",
         ).pack(side=tk.LEFT, padx=(0, 6))
 
-        tk.Button(
-            gal_row,
-            text="⏮",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=6,
-            command=lambda: self.engine.step_gallery_slide(-1),
-        ).pack(side=tk.LEFT, ipady=2, padx=(0, 3))
-
-        tk.Button(
-            gal_row,
-            text="⏭",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=6,
-            command=lambda: self.engine.step_gallery_slide(1),
-        ).pack(side=tk.LEFT, ipady=2, padx=(0, 6))
-
-        tk.Button(
-            gal_row,
-            text="▶ Start Slideshow",
-            font=("Segoe UI", 9, "bold"),
-            bg="#10b981",
-            fg="#052e16",
-            relief=tk.FLAT,
-            padx=12,
-            command=self.on_start_gallery_slideshow,
-        ).pack(side=tk.LEFT, ipady=3)
-
-        # 4. Multi-Monitor Desktop & Meeting Screen Share
-        mon_frame = tk.LabelFrame(
-            self.root,
-            text=" 4. Multi-Monitor Desktop Mirroring (Choose All or Specific Monitors) & Meeting Share ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#a855f7",
-            padx=12,
-            pady=6,
+        self._make_btn(gal_row, "◁ Prev", lambda: self.engine.step_gallery_slide(-1), "secondary", padx=8, pady=3).pack(
+            side=tk.LEFT, padx=(0, 4)
         )
-        mon_frame.pack(fill=tk.X, padx=16, pady=3)
+        self._make_btn(gal_row, "Next ▷", lambda: self.engine.step_gallery_slide(1), "secondary", padx=8, pady=3).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        self._make_btn(gal_row, "▶  Start Slideshow", self.on_start_gallery_slideshow, "primary", padx=13, pady=4).pack(
+            side=tk.LEFT
+        )
 
-        mon_top_row = tk.Frame(mon_frame, bg="#0f172a")
-        mon_top_row.pack(fill=tk.X, pady=(0, 4))
+        # Card 4: Multi-Monitor Desktop Mirroring & Meeting Screen Share
+        mon_card = self._make_card(self.root)
+
+        tk.Label(
+            mon_card,
+            text="3.  MULTI-MONITOR PC DESKTOP MIRRORING & MEETING TAB/WINDOW SHARE",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+        ).pack(anchor="w", pady=(0, 6))
+
+        mon_top_row = tk.Frame(mon_card, bg="#ffffff")
+        mon_top_row.pack(fill=tk.X, pady=(0, 6))
 
         tk.Label(
             mon_top_row,
-            text="Select Monitor(s):",
+            text="Displays:",
             font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#cbd5e1",
+            bg="#ffffff",
+            fg="#475569",
         ).pack(side=tk.LEFT, padx=(0, 8))
 
         for m in self.engine.monitors_info:
@@ -428,94 +428,84 @@ class NVRCastDesktopApp:
                 text=m["label"],
                 variable=var,
                 font=("Segoe UI", 9),
-                bg="#1e293b",
-                fg="#f8fafc",
-                selectcolor="#0f172a",
-                activebackground="#1e293b",
-                activeforeground="#38bdf8",
+                bg="#f8fafc",
+                fg="#0f172a",
+                selectcolor="#ffffff",
+                activebackground="#f1f5f9",
                 padx=8,
                 pady=2,
+                relief=tk.SOLID,
+                bd=1,
                 command=self.on_monitor_selection_change,
             )
             cb.pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
-            mon_top_row,
-            text="Select All",
-            font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
-            command=self.select_all_monitors,
-        ).pack(side=tk.LEFT, padx=(4, 0))
+        self._make_btn(mon_top_row, "Select All Displays", self.select_all_monitors, "secondary", padx=10, pady=2).pack(
+            side=tk.LEFT
+        )
 
-        mon_action_row = tk.Frame(mon_frame, bg="#0f172a")
-        mon_action_row.pack(fill=tk.X, pady=(2, 0))
+        mon_action_row = tk.Frame(mon_card, bg="#ffffff")
+        mon_action_row.pack(fill=tk.X)
 
-        tk.Button(
+        self._make_btn(
             mon_action_row,
-            text="🖥️ Mirror Selected Monitor(s) to NVR",
-            font=("Segoe UI", 9, "bold"),
-            bg="#2563eb",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=14,
-            pady=3,
+            text="▶  Mirror Selected Monitor(s) to NVR",
             command=self.on_start_desktop_mirror,
+            variant="primary",
+            padx=14,
+            pady=4,
         ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(
+        self._make_btn(
             mon_action_row,
-            text="💻 Share Tab / Window + Audio (Meeting Mode)",
-            font=("Segoe UI", 9, "bold"),
-            bg="#7c3aed",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=14,
-            pady=3,
+            text="Share Browser Tab / Window + Audio (Meeting Mode)  ↗",
             command=lambda: os.startfile(f"http://localhost:{self.engine.web_port}/?autoshare=1"),
-        ).pack(side=tk.LEFT, padx=(0, 8))
+            variant="accent",
+            padx=14,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 12))
 
         self.pc_audio_var = tk.BooleanVar(value=True)
         tk.Checkbutton(
             mon_action_row,
-            text="🔊 PC Speaker Audio",
+            text="Stream PC Speaker Audio",
             variable=self.pc_audio_var,
-            font=("Segoe UI", 9),
-            bg="#0f172a",
-            fg="#cbd5e1",
-            selectcolor="#1e293b",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+            selectcolor="#ffffff",
             command=self.on_settings_change,
-        ).pack(side=tk.LEFT, padx=(4, 6))
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
         self.cursor_var = tk.BooleanVar(value=True)
         tk.Checkbutton(
             mon_action_row,
-            text="🖱️ Cursor",
+            text="Show Mouse Pointer",
             variable=self.cursor_var,
-            font=("Segoe UI", 9),
-            bg="#0f172a",
-            fg="#cbd5e1",
-            selectcolor="#1e293b",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+            selectcolor="#ffffff",
             command=self.on_settings_change,
         ).pack(side=tk.LEFT)
 
-        # 5. Stream Flexibility & Quality Settings
-        settings_frame = tk.LabelFrame(
-            self.root,
-            text=" 5. Flexibility & Stream Encoding Options ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#eab308",
-            padx=12,
-            pady=5,
-        )
-        settings_frame.pack(fill=tk.X, padx=16, pady=3)
+        # Card 5: Stream Quality & Encoding Options
+        settings_card = self._make_card(self.root)
 
-        tk.Label(settings_frame, text="Resolution:", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        settings_row = tk.Frame(settings_card, bg="#ffffff")
+        settings_row.pack(fill=tk.X)
+
+        tk.Label(
+            settings_row,
+            text="4.  QUALITY & ENCODING:",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+        ).pack(side=tk.LEFT, padx=(0, 12))
+
+        tk.Label(settings_row, text="Resolution:", font=("Segoe UI", 9), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.res_combo = ttk.Combobox(
-            settings_frame,
+            settings_row,
             values=["1280x720", "1920x1080", "854x480"],
             width=10,
             state="readonly",
@@ -524,20 +514,20 @@ class NVRCastDesktopApp:
         self.res_combo.pack(side=tk.LEFT, padx=(4, 12))
         self.res_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        tk.Label(settings_frame, text="Aspect Fit:", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        tk.Label(settings_row, text="Fit:", font=("Segoe UI", 9), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.aspect_combo = ttk.Combobox(
-            settings_frame,
+            settings_row,
             values=["fit (Letterbox)", "stretch (Fill 16:9)", "crop (Center 16:9)"],
-            width=16,
+            width=15,
             state="readonly",
         )
         self.aspect_combo.set("fit (Letterbox)")
         self.aspect_combo.pack(side=tk.LEFT, padx=(4, 12))
         self.aspect_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        tk.Label(settings_frame, text="FPS:", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        tk.Label(settings_row, text="FPS:", font=("Segoe UI", 9), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.fps_combo = ttk.Combobox(
-            settings_frame,
+            settings_row,
             values=["25", "30", "15"],
             width=4,
             state="readonly",
@@ -546,9 +536,9 @@ class NVRCastDesktopApp:
         self.fps_combo.pack(side=tk.LEFT, padx=(4, 12))
         self.fps_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        tk.Label(settings_frame, text="Bitrate:", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        tk.Label(settings_row, text="Bitrate:", font=("Segoe UI", 9), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.bitrate_combo = ttk.Combobox(
-            settings_frame,
+            settings_row,
             values=["1000k", "1800k", "2500k", "4000k"],
             width=7,
             state="readonly",
@@ -557,9 +547,9 @@ class NVRCastDesktopApp:
         self.bitrate_combo.pack(side=tk.LEFT, padx=(4, 12))
         self.bitrate_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        tk.Label(settings_frame, text="Audio:", font=("Segoe UI", 9), bg="#0f172a", fg="#cbd5e1").pack(side=tk.LEFT)
+        tk.Label(settings_row, text="Audio:", font=("Segoe UI", 9), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
         self.audio_combo = ttk.Combobox(
-            settings_frame,
+            settings_row,
             values=[
                 "pcm_mulaw (G.711u CCTV)",
                 "pcm_alaw (G.711a CCTV)",
@@ -571,67 +561,95 @@ class NVRCastDesktopApp:
             state="readonly",
         )
         self.audio_combo.set("pcm_mulaw (G.711u CCTV)")
-        self.audio_combo.pack(side=tk.LEFT, padx=(4, 4))
+        self.audio_combo.pack(side=tk.LEFT, padx=(4, 0))
         self.audio_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        # Log Console
-        log_frame = tk.LabelFrame(
+        # Card 6: System Activity Logs
+        log_card = tk.Frame(
             self.root,
-            text=" Live Stream & RTSP Server Logs ",
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#94a3b8",
-            padx=10,
-            pady=4,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=14,
+            pady=8,
         )
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(3, 10))
+        log_card.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+
+        tk.Label(
+            log_card,
+            text="SYSTEM & RTSP SERVER ACTIVITY LOG",
+            font=("Segoe UI", 8, "bold"),
+            bg="#ffffff",
+            fg="#64748b",
+        ).pack(anchor="w", pady=(0, 4))
 
         self.log_text = tk.Text(
-            log_frame,
+            log_card,
             height=6,
-            bg="#020617",
-            fg="#38bdf8",
+            bg="#f8fafc",
+            fg="#334155",
             font=("Consolas", 9),
-            relief=tk.FLAT,
+            relief=tk.SOLID,
+            bd=1,
             state=tk.DISABLED,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-    def _add_copy_row(self, parent, label_text: str, text_var: tk.StringVar, row: int):
+    def _add_endpoint_pill(self, parent, label_text: str, text_var: tk.StringVar):
+        box = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=4)
+        box.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
         tk.Label(
-            parent,
+            box,
             text=label_text,
-            font=("Segoe UI", 9, "bold"),
-            bg="#0f172a",
-            fg="#cbd5e1",
-            width=22,
-            anchor="w",
-        ).grid(row=row, column=0, sticky="w", pady=1)
+            font=("Segoe UI", 8, "bold"),
+            bg="#f8fafc",
+            fg="#64748b",
+        ).pack(side=tk.LEFT, padx=(0, 4))
 
         entry = tk.Entry(
-            parent,
+            box,
             textvariable=text_var,
             font=("Consolas", 9, "bold"),
-            bg="#1e293b",
-            fg="#fde047",
-            readonlybackground="#1e293b",
+            bg="#f8fafc",
+            fg="#0f172a",
+            readonlybackground="#f8fafc",
             relief=tk.FLAT,
-            width=48,
             state="readonly",
         )
-        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=1, ipady=1)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         tk.Button(
-            parent,
+            box,
             text="Copy",
             font=("Segoe UI", 8, "bold"),
-            bg="#334155",
-            fg="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
+            bg="#ffffff",
+            fg="#2563eb",
+            relief=tk.SOLID,
+            bd=1,
+            padx=7,
+            cursor="hand2",
             command=lambda: self.copy_to_clipboard(text_var.get()),
-        ).grid(row=row, column=2, pady=1)
-        parent.grid_columnconfigure(1, weight=1)
+        ).pack(side=tk.RIGHT, padx=(4, 0))
+
+    def _periodic_status_tick(self):
+        try:
+            d = self.engine.get_status_dict()
+            if d["mode"] in ("YOUTUBE", "FILE"):
+                sec = d.get("playback_sec", 0)
+                m, s = divmod(sec, 60)
+                self.pos_label.configure(text=f"•  {m:02d}:{s:02d}{' (Loop)' if d.get('loop_video') else ''}")
+            elif d["mode"] == "GALLERY":
+                gal = d.get("gallery", {})
+                self.pos_label.configure(
+                    text=f"•  Slide {gal.get('index', 0) + 1}/{gal.get('count', 1)} ({gal.get('interval', 5)}s)"
+                )
+            else:
+                self.pos_label.configure(text="")
+            self.pause_btn.configure(text="▶  Resume" if d.get("is_paused") else "❚❚  Pause")
+        except Exception:
+            pass
+        self.root.after(1000, self._periodic_status_tick)
 
     def on_toggle_pause(self):
         self.engine.toggle_pause(source="Desktop App")
@@ -644,12 +662,12 @@ class NVRCastDesktopApp:
 
     def on_pick_gallery_files(self):
         files = filedialog.askopenfilenames(
-            title="Select Pictures for NVR Slideshow",
+            title="Select Picture(s) for NVR Slideshow",
             filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp *.webp *.gif"), ("All Files", "*.*")],
         )
         if files:
             file_list = list(files)
-            self.gal_folder_var.set(os.path.dirname(file_list[0]))
+            self.gal_folder_var.set(";".join(file_list) if len(file_list) > 1 else file_list[0])
             try:
                 timer_s = int(self.gal_timer_spin.get() or 5)
             except Exception:
@@ -777,18 +795,18 @@ class NVRCastDesktopApp:
 
     def _update_status(self, mode: str, title: str):
         colors = {
-            "STANDBY": ("#22c55e", "#052e16"),
-            "LOADING": ("#f59e0b", "#0f172a"),
-            "YOUTUBE": ("#ef4444", "#ffffff"),
-            "FILE": ("#3b82f6", "#ffffff"),
-            "GALLERY": ("#10b981", "#052e16"),
-            "SCREEN": ("#2563eb", "#ffffff"),
-            "BROWSER": ("#8b5cf6", "#ffffff"),
+            "STANDBY": ("#dcfce7", "#15803d"),
+            "LOADING": ("#fef3c7", "#b45309"),
+            "YOUTUBE": ("#dbeafe", "#1d4ed8"),
+            "FILE": ("#dbeafe", "#1d4ed8"),
+            "GALLERY": ("#dcfce7", "#15803d"),
+            "SCREEN": ("#e0e7ff", "#4338ca"),
+            "BROWSER": ("#f3e8ff", "#6d28d9"),
         }
-        bg, fg = colors.get(mode, ("#475569", "#ffffff"))
+        bg, fg = colors.get(mode, ("#f1f5f9", "#334155"))
         self.mode_badge.configure(text=f" {mode} ", bg=bg, fg=fg)
         src = getattr(self.engine, "active_source", "")
-        src_prefix = f"[{src}] " if src and src not in ("System", "System Standby") else ""
+        src_prefix = f"[{src}]  " if src and src not in ("System", "System Standby") else ""
         self.title_label.configure(text=f"{src_prefix}{title}")
 
     def on_close(self):

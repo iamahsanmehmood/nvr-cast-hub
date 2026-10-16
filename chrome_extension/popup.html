@@ -6,154 +6,347 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    width: 365px;
+    width: 375px;
     margin: 0;
-    padding: 13px;
-    background: #0f172a;
-    color: #f8fafc;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 14px;
+    background: #f8fafc;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
   .header-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 3px;
+    margin-bottom: 10px;
   }
-  h3 {
-    margin: 0;
-    color: #38bdf8;
-    font-size: 15px;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: #2563eb;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+  }
+  .brand-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.15;
+  }
+  .brand-sub {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 500;
   }
   .badge {
-    font-size: 10px;
+    font-size: 10.5px;
     font-weight: 700;
-    padding: 3px 8px;
+    padding: 3px 9px;
     border-radius: 99px;
-    background: #f59e0b;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    letter-spacing: 0.3px;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 11px;
+    margin-bottom: 9px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  }
+  .card-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #64748b;
+    margin-bottom: 7px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .status-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    font-size: 11.5px;
+  }
+  .mode-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 700;
+    font-size: 11px;
+    color: #15803d;
+    background: #dcfce7;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .source-tag {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .now-playing {
+    font-size: 12.5px;
+    font-weight: 600;
     color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
   }
-  p.sub {
-    margin: 0 0 8px 0;
-    color: #94a3b8;
-    font-size: 11.5px;
-  }
-  .status {
-    background: #1e293b;
-    padding: 9px 10px;
-    border-radius: 8px;
-    border-left: 3px solid #4ade80;
-    font-size: 11.5px;
-    margin-bottom: 8px;
-    line-height: 1.45;
+  .pos-line {
+    font-size: 11px;
+    color: #2563eb;
+    font-weight: 600;
+    min-height: 15px;
   }
   .ctrl-bar {
     display: grid;
-    grid-template-columns: 1.5fr 1fr 1fr 1fr;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
     gap: 5px;
-    margin-bottom: 9px;
+    margin-top: 8px;
   }
-  .btn {
-    width: 100%;
-    padding: 9px 11px;
-    border: none;
-    border-radius: 7px;
-    font-weight: 700;
-    font-size: 12px;
+  button {
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     cursor: pointer;
-    margin-bottom: 6px;
-    color: #fff;
-    transition: opacity 0.15s;
+    transition: all 0.14s ease;
   }
-  .btn:hover { opacity: 0.92; }
-  .btn-yt { background: #ef4444; }
-  .btn-pip { background: #e11d48; }
-  .btn-meet { background: #8b5cf6; }
-  .btn-screen { background: #2563eb; }
-  .btn-gal { background: #10b981; color: #052e16; }
-  .btn-warn { background: #f59e0b; color: #0f172a; }
-  .btn-stop { background: #475569; margin-bottom: 0; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .grid-2 .btn { margin-bottom: 0; padding: 8px 6px; font-size: 11.5px; }
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .grid-3 .btn { margin-bottom: 0; padding: 8px 4px; font-size: 11px; }
-  .row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .btn-ctrl {
+    padding: 6px 8px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .btn-ctrl:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+  .btn-ctrl-stop {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #dc2626;
+  }
+  .btn-ctrl-stop:hover {
+    background: #fee2e2;
+  }
+  .btn-primary {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid #1d4ed8;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+  }
+  .btn-primary:hover {
+    background: #1d4ed8;
+  }
+  .btn-secondary {
+    width: 100%;
+    padding: 7.5px 8px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .btn-secondary:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 7px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 5px;
+  }
+  .row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
   input[type=text] {
     flex: 1;
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid #334155;
-    background: #1e293b;
-    color: #fff;
+    padding: 6.5px 9px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
     font-size: 11.5px;
+    outline: none;
   }
-  .small-btn {
-    padding: 6px 9px;
-    border: none;
-    border-radius: 6px;
-    background: #334155;
-    color: #fff;
+  input[type=text]:focus {
+    border-color: #2563eb;
+    background: #ffffff;
+  }
+  .check-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toast {
+    display: none;
     font-size: 11px;
     font-weight: 600;
-    cursor: pointer;
+    padding: 6px 9px;
+    border-radius: 7px;
+    margin-bottom: 8px;
+    background: #eff6ff;
+    color: #1e40af;
+    border: 1px solid #bfdbfe;
   }
-  .small-btn:hover { background: #475569; }
+  svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 2;
+     stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
   <div class="header-row">
-    <h3>📺 NVR Cast Hub v0.1.0-beta</h3>
-    <span class="badge" id="connBadge">CHECKING</span>
-  </div>
-  <p class="sub">Live Video Player Sync, Multi-Monitor & Gallery Remote</p>
-
-  <div class="status" id="statusBox">
-    <strong>Active Mode:</strong> <span id="modeTxt" style="color:#4ade80;font-weight:700;">Checking...</span>
-    &nbsp;|&nbsp; <strong>By:</strong> <span id="sourceTxt" style="color:#38bdf8;">-</span><br>
-    <strong>Now Playing:</strong> <span id="titleTxt">Connecting to Hub...</span>
-    <span id="posTxt" style="color:#fde047;display:block;font-size:11px;margin-top:2px;"></span>
-  </div>
-
-  <!-- Active Stream Controls (Pause/Resume/Seek/Stop) -->
-  <div class="ctrl-bar">
-    <button class="small-btn btn-warn" id="btnTogglePause">⏯ Pause/Play</button>
-    <button class="small-btn" id="btnSeekBack">⏪ -10s</button>
-    <button class="small-btn" id="btnSeekFwd">⏩ +10s</button>
-    <button class="small-btn" style="background:#dc2626;" id="btnStop">⏹ Stop</button>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">NVR Cast Hub</div>
+        <div class="brand-sub">Live Video Sync &amp; Multi-Screen Caster</div>
+      </div>
+    </div>
+    <span class="badge" id="connBadge">CONNECTING</span>
   </div>
 
-  <!-- Live Browser Video Player Sync (YouTube & Any Web Player) -->
-  <button class="btn btn-yt" id="btnCastCurrentTab">▶ Cast Tab Video (with Seek/Pause Sync)</button>
-  <div class="grid-2">
-    <button class="btn btn-pip" id="btnPipMirror">📺 PiP Live Player Stream</button>
-    <button class="btn btn-meet" id="btnShareMeeting">💻 Share Tab / Window</button>
+  <div class="toast" id="toastMsg"></div>
+
+  <!-- 1. Active Session & Transport Controls -->
+  <div class="card">
+    <div class="status-meta">
+      <span class="mode-pill" id="modeTxt">STANDBY</span>
+      <span class="source-tag">Source: <strong id="sourceTxt">-</strong></span>
+    </div>
+    <div class="now-playing" id="titleTxt">Connecting to NVR Cast Hub...</div>
+    <div class="pos-line" id="posTxt">Ready to stream</div>
+
+    <div class="ctrl-bar">
+      <button class="btn-ctrl" id="btnTogglePause" title="Pause or Resume Active Stream">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span id="pauseBtnLabel">Pause</span>
+      </button>
+      <button class="btn-ctrl" id="btnSeekBack" title="Rewind 10 seconds">
+        <svg viewBox="0 0 24 24"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>
+        -10s
+      </button>
+      <button class="btn-ctrl" id="btnSeekFwd" title="Forward 10 seconds">
+        <svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
+        +10s
+      </button>
+      <button class="btn-ctrl btn-ctrl-stop" id="btnStop" title="Stop Stream & Return to Standby">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        Stop
+      </button>
+    </div>
   </div>
 
-  <!-- Multi-Monitor Selection -->
-  <div class="grid-3">
-    <button class="btn btn-screen" id="btnMon1">🖥️ Monitor 1</button>
-    <button class="btn btn-screen" id="btnMon2">🖥️ Monitor 2</button>
-    <button class="btn btn-screen" id="btnMonAll">🖥️ All Screens</button>
+  <!-- 2. Browser Video Sync & Tab Casting -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 15 12 10 15 10 9"/></svg>
+      Browser Video &amp; Tab Casting
+    </div>
+    <button class="btn-primary" id="btnCastCurrentTab">
+      <svg viewBox="0 0 24 24"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+      Cast Current Tab Video (Sync Seek &amp; Pause)
+    </button>
+    <div class="grid-2">
+      <button class="btn-secondary" id="btnPipMirror" title="Stream live HTML5 video player directly (PiP Mode)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><rect x="12" y="9" width="8" height="6" rx="1"/></svg>
+        PiP Video Stream
+      </button>
+      <button class="btn-secondary" id="btnShareMeeting" title="Share Browser Tab, Window or Screen with Audio">
+        <svg viewBox="0 0 24 24"><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/><polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Share Tab / Window
+      </button>
+    </div>
+    <div class="row">
+      <input type="text" id="customQuery" placeholder="Paste YouTube URL or search query...">
+      <label class="check-label" title="Infinite Video Loop">
+        <input type="checkbox" id="chkLoop"> Loop
+      </label>
+      <button class="btn-ctrl" id="btnCastCustom">Cast</button>
+    </div>
   </div>
 
-  <!-- Custom URL + Loop Checkbox -->
-  <div class="row">
-    <input type="text" id="customQuery" placeholder="YouTube URL or search...">
-    <label style="font-size:11px;display:flex;align-items:center;gap:3px;cursor:pointer;color:#fde047;">
-      <input type="checkbox" id="chkLoop"> 🔁 Loop
-    </label>
-    <button class="small-btn" id="btnCastCustom">▶ Cast</button>
+  <!-- 3. PC Monitors & Photo Gallery Remote -->
+  <div class="card" style="margin-bottom:8px;">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      PC Monitors &amp; Photo Slideshow
+    </div>
+    <div class="grid-3" style="margin-bottom:6px;">
+      <button class="btn-secondary" id="btnMon1">Monitor 1</button>
+      <button class="btn-secondary" id="btnMon2">Monitor 2</button>
+      <button class="btn-secondary" id="btnMonAll">All Screens</button>
+    </div>
+    <div class="row">
+      <button class="btn-secondary" style="flex:1;" id="btnOpenStudio">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Open Studio &amp; Gallery (:8090)
+      </button>
+      <button class="btn-ctrl" id="btnGalPrev" title="Previous Slide">
+        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        Prev
+      </button>
+      <button class="btn-ctrl" id="btnGalNext" title="Next Slide">
+        Next
+        <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
   </div>
 
-  <!-- Photo Gallery Slideshow Quick Controls -->
-  <div class="row">
-    <button class="small-btn btn-gal" style="flex:1;" id="btnOpenStudio">🖼️ Open Gallery & Loop Studio (:8090)</button>
-    <button class="small-btn" id="btnGalPrev" title="Previous Gallery Slide">⏮ Slide</button>
-    <button class="small-btn" id="btnGalNext" title="Next Gallery Slide">⏭ Slide</button>
-  </div>
-
-  <div class="row" style="margin-top: 4px; margin-bottom: 0;">
+  <!-- 4. Server Endpoint Footer -->
+  <div class="row" style="margin-top:2px;">
     <input type="text" id="serverUrl" value="http://127.0.0.1:8090" placeholder="http://127.0.0.1:8090">
-    <button class="small-btn" id="btnSaveUrl">Save</button>
+    <button class="btn-ctrl" id="btnSaveUrl">Save Hub</button>
   </div>
 
   <script src="popup.js"></script>

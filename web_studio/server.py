@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler
 from desktop_app.engine import NVRCastEngine, APP_VERSION
@@ -7,10 +8,11 @@ from desktop_app.engine import NVRCastEngine, APP_VERSION
 class WebRemoteHandler(BaseHTTPRequestHandler):
     """
     Browser Web Cast Studio, Active Session Controller & Mobile Remote (v0.1.0-beta).
+    Clean Whitish / Light Studio UI with crisp SVG vector icons.
     Provides:
       - Unified Active Session Bar (shows which app/extension is currently streaming + Pause/Resume/Seek/Stop)
       - Direct YouTube / Web Video Casting with Infinite Loop & Seek Sync
-      - Photo Gallery / Folder Slideshow with Timer, Shuffle & Next/Prev Controls
+      - Rock-Solid Photo Gallery & Single-Picture Slideshow with Timer, Shuffle & Next/Prev Controls
       - Multi-Monitor PC Desktop Selection (Choose All or Specific Monitors)
       - Meeting-Style Browser Tab / Window / Screen Share with Audio
     """
@@ -42,7 +44,6 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(payload).encode("utf-8"))
             return
 
-        # Build monitor checkboxes HTML dynamically
         mon_checks_html = ""
         for m in self.engine.detect_monitors():
             if m["index"] == 0:
@@ -51,7 +52,7 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
             mon_checks_html += (
                 f'<label class="mon-pill">'
                 f'<input type="checkbox" class="mon-cb" value="{m["index"]}" {checked}> '
-                f'{m["label"]}</label>'
+                f'<span>{m["label"]}</span></label>'
             )
 
         html = f"""<!DOCTYPE html>
@@ -59,138 +60,456 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NVR Cast Studio v{APP_VERSION} — Universal NVR & CCTV Caster</title>
+<title>NVR Cast Studio v{APP_VERSION} — Universal RTSP Caster</title>
 <style>
   * {{ box-sizing: border-box; }}
-  body {{ font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 18px; }}
-  .container {{ max-width: 820px; margin: 0 auto; }}
-  .card {{ background: #1e293b; border-radius: 14px; padding: 18px 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); border: 1px solid #334155; margin-bottom: 16px; }}
-  h2 {{ margin: 0 0 6px 0; color: #38bdf8; font-size: 21px; }}
-  h3 {{ margin: 0 0 10px 0; color: #f8fafc; font-size: 15.5px; display: flex; align-items: center; gap: 8px; }}
-  p.sub {{ margin: 0 0 12px 0; color: #94a3b8; font-size: 13px; }}
-  .status {{ background: #0f172a; padding: 14px; border-radius: 10px; margin-bottom: 12px; border-left: 4px solid #4ade80; font-size: 13.5px; line-height: 1.6; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+    margin: 0;
+    padding: 22px 18px 36px 18px;
+    -webkit-font-smoothing: antialiased;
+  }}
+  .container {{ max-width: 1020px; margin: 0 auto; }}
+  .topbar {{
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 16px 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }}
+  .brand {{ display: flex; align-items: center; gap: 12px; }}
+  .brand-icon {{
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: #2563eb;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  }}
+  .brand h1 {{ margin: 0; font-size: 18px; font-weight: 700; color: #0f172a; }}
+  .brand p {{ margin: 2px 0 0 0; font-size: 12.5px; color: #64748b; }}
+  .rtsp-pills {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+  .rtsp-pill {{
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }}
+  .rtsp-pill code {{ font-family: Consolas, monospace; font-weight: 700; color: #0f172a; }}
+  .session-bar {{
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 16px 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+  }}
+  .session-info {{ flex: 1; min-width: 260px; }}
+  .session-meta {{ display: flex; align-items: center; gap: 10px; margin-bottom: 5px; font-size: 12px; color: #64748b; }}
+  .mode-badge {{
+    background: #dcfce7;
+    color: #15803d;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 6px;
+    letter-spacing: 0.3px;
+  }}
+  .session-title {{ font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }}
+  .session-pos {{ font-size: 12.5px; font-weight: 600; color: #2563eb; }}
+  .session-controls {{ display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }}
+  .grid-2col {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }}
+  .card {{
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 20px 22px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }}
+  .card-header {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }}
+  .card-icon {{
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }}
+  .card h3 {{ margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; }}
+  p.sub {{ margin: 0 0 14px 0; color: #64748b; font-size: 12.5px; line-height: 1.45; }}
   .row {{ display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }}
-  input[type=text], input[type=number], select {{ padding: 9px 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 13.5px; }}
-  input[type=text] {{ flex: 1; min-width: 200px; }}
-  .btn {{ width: 100%; padding: 11px 14px; border: none; border-radius: 8px; font-weight: 700; font-size: 13.5px; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }}
-  .btn:hover {{ opacity: 0.92; }}
-  .btn-sm {{ width: auto; padding: 7px 12px; font-size: 12.5px; margin-bottom: 0; background: #334155; color: #e2e8f0; border-radius: 7px; border: none; font-weight: 600; cursor: pointer; }}
-  .btn-play {{ background: #ef4444; color: white; }}
-  .btn-gallery {{ background: #10b981; color: white; }}
-  .btn-meet {{ background: #8b5cf6; color: white; }}
-  .btn-screen {{ background: #2563eb; color: white; }}
-  .btn-standby {{ background: #475569; color: white; }}
-  .btn-warn {{ background: #f59e0b; color: #0f172a; }}
-  .mon-list {{ display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px 0; }}
-  .mon-pill {{ background: #0f172a; border: 1px solid #475569; padding: 10px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }}
-  .settings-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }}
-  .settings-grid label {{ font-size: 12px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; }}
-  video#previewVideo {{ width: 100%; max-height: 280px; background: #020617; border-radius: 8px; border: 1px solid #334155; display: none; margin-top: 10px; }}
-  .code-box {{ background: #0f172a; padding: 12px; border-radius: 8px; font-family: Consolas, monospace; font-size: 12px; color: #fde047; line-height: 1.6; word-break: break-all; }}
+  input[type=text], input[type=number], select {{
+    padding: 8.5px 11px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }}
+  input[type=text]:focus, input[type=number]:focus, select:focus {{
+    border-color: #2563eb;
+    background: #ffffff;
+  }}
+  input[type=text] {{ flex: 1; min-width: 190px; }}
+  button {{
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }}
+  .btn-primary {{
+    padding: 9.5px 16px;
+    border-radius: 8px;
+    border: 1px solid #1d4ed8;
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+  }}
+  .btn-primary:hover {{ background: #1d4ed8; }}
+  .btn-secondary {{
+    padding: 8.5px 13px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 600;
+    font-size: 12.5px;
+  }}
+  .btn-secondary:hover {{ background: #f1f5f9; border-color: #94a3b8; }}
+  .btn-danger {{
+    padding: 8.5px 13px;
+    border-radius: 8px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
+    font-weight: 600;
+    font-size: 12.5px;
+  }}
+  .btn-danger:hover {{ background: #fee2e2; }}
+  .check-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    user-select: none;
+  }}
+  .mon-list {{ display: flex; flex-direction: column; gap: 7px; margin: 10px 0 12px 0; }}
+  .mon-pill {{
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #0f172a;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }}
+  .mon-pill:hover {{ background: #f1f5f9; }}
+  .settings-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }}
+  .settings-grid label {{
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }}
+  video#previewVideo {{
+    width: 100%;
+    max-height: 240px;
+    background: #0f172a;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    display: none;
+    margin-top: 12px;
+  }}
+  svg {{
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    flex-shrink: 0;
+  }}
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="card">
-    <h2>📺 NVR Cast Studio v{APP_VERSION}</h2>
-    <p class="sub">Universal RTSP Media, Photo Gallery, Video Loop & Screen Caster for Hikvision, Dahua, Uniview, Reolink & ONVIF NVRs.</p>
-
-    <div class="status" id="statusBanner">
-      <strong>Active Mode:</strong> <span id="modeTxt" style="color:#4ade80;font-weight:700;">{self.engine.current_mode}</span>
-      &nbsp;|&nbsp; <strong>Started By:</strong> <span id="sourceTxt" style="color:#38bdf8;font-weight:700;">{self.engine.active_source}</span><br>
-      <strong>Now Playing on NVR:</strong> <span id="titleTxt">{self.engine.current_title}</span>
-      &nbsp;<span id="timeTxt" style="color:#fde047;"></span>
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" style="width:20px;height:20px;"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+      </div>
+      <div>
+        <h1>NVR Cast Studio <span style="font-size:12px;font-weight:600;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:99px;margin-left:4px;">v{APP_VERSION}</span></h1>
+        <p>Universal RTSP Video, Photo Slideshow &amp; Multi-Monitor Caster for Hikvision, Dahua, Uniview, Reolink &amp; ONVIF NVRs</p>
+      </div>
     </div>
-
-    <div class="row" style="margin-bottom: 4px;">
-      <button class="btn-sm btn-warn" onclick="togglePause()" id="btnPauseResume">⏯ Pause / Resume Current Stream</button>
-      <button class="btn-sm" onclick="seekDelta(-30)">⏪ -30s</button>
-      <button class="btn-sm" onclick="seekDelta(-10)">⏪ -10s</button>
-      <button class="btn-sm" onclick="seekDelta(10)">⏩ +10s</button>
-      <button class="btn-sm" onclick="seekDelta(30)">⏩ +30s</button>
-      <button class="btn-sm" style="background:#dc2626;color:#fff;" onclick="stopCast()">⏹ Stop / Standby</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>🎬 1. Cast YouTube, Web Video, or Local Video (with Infinite Loop & Seek)</h3>
-    <div class="row">
-      <input type="text" id="ytInput" placeholder="Paste YouTube / Web Video URL, search phrase, or local file path...">
-      <input type="number" id="startSec" placeholder="Start (s)" style="width: 90px;" min="0" value="0" title="Start timestamp in seconds">
-      <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;">
-        <input type="checkbox" id="chkLoopVideo"> 🔁 Loop Video
-      </label>
-    </div>
-    <div class="row">
-      <button class="btn btn-play" style="flex:2;margin-bottom:0;" onclick="castYT()">▶ Stream Video / YouTube to NVR</button>
-      <button class="btn-sm" style="padding:11px 14px;" onclick="pickHostFile('video')">📂 Pick Video File on PC...</button>
+    <div class="rtsp-pills">
+      <div class="rtsp-pill">
+        <span>Main HD:</span>
+        <code id="mainRtspCode">rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main</code>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;" onclick="copyText('rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main', this)">Copy</button>
+      </div>
+      <div class="rtsp-pill">
+        <span>Sub Grid:</span>
+        <code id="subRtspCode">rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/sub</code>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;" onclick="copyText('rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/sub', this)">Copy</button>
+      </div>
     </div>
   </div>
 
-  <div class="card">
-    <h3>🖼️ 2. Photo Gallery / Folder Slideshow Gadget (Timer + Shuffle)</h3>
-    <p class="sub">Select a folder of pictures on your PC to run an automatic slideshow on your NVR monitor with timer and shuffle.</p>
-    <div class="row">
-      <input type="text" id="galleryFolder" placeholder="Enter image folder path (e.g. C:\\Users\\Public\\Pictures) or click Browse..." value="{self.engine.gallery_folder}">
-      <button class="btn-sm" onclick="pickHostFile('folder')">📁 Browse Folder...</button>
+  <!-- Unified Active Session Bar -->
+  <div class="session-bar">
+    <div class="session-info">
+      <div class="session-meta">
+        <span class="mode-badge" id="modeTxt">{self.engine.current_mode}</span>
+        <span>Started By: <strong id="sourceTxt" style="color:#0f172a;">{self.engine.active_source}</strong></span>
+      </div>
+      <div class="session-title" id="titleTxt">{self.engine.current_title}</div>
+      <div class="session-pos" id="timeTxt">Stream active on NVR</div>
     </div>
-    <div class="row">
-      <label style="font-size:13px;">Slide Timer (sec):
-        <input type="number" id="galleryTimer" value="{self.engine.gallery_interval}" min="1" max="3600" style="width:75px;margin-left:6px;">
-      </label>
-      <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:10px;">
-        <input type="checkbox" id="chkGalleryShuffle"> 🔀 Shuffle Pictures
-      </label>
-      <button class="btn-sm" onclick="stepGallery(-1)">⏮ Prev Slide</button>
-      <button class="btn-sm" onclick="stepGallery(1)">⏭ Next Slide</button>
+    <div class="session-controls">
+      <button class="btn-secondary" onclick="togglePause()" id="btnPauseResume">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span id="pauseBtnText">Pause / Resume</span>
+      </button>
+      <button class="btn-secondary" onclick="seekDelta(-30)" title="Rewind 30s">-30s</button>
+      <button class="btn-secondary" onclick="seekDelta(-10)" title="Rewind 10s">
+        <svg viewBox="0 0 24 24"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>
+        -10s
+      </button>
+      <button class="btn-secondary" onclick="seekDelta(10)" title="Forward 10s">
+        +10s
+        <svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
+      </button>
+      <button class="btn-secondary" onclick="seekDelta(30)" title="Forward 30s">+30s</button>
+      <button class="btn-danger" onclick="stopCast()">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        Stop / Standby
+      </button>
     </div>
-    <button class="btn btn-gallery" style="margin-bottom:0;" onclick="startGallery()">🖼️ Start Photo Gallery Slideshow on NVR</button>
   </div>
 
-  <div class="card">
-    <h3>🖥️ 3. Multi-Monitor PC Desktop Mirroring (Choose All or Specific Monitors)</h3>
-    <div class="row">
-      <button class="btn-sm" onclick="selectMonitors('all')">Select All Monitors</button>
-      <button class="btn-sm" onclick="selectMonitors(1)">Monitor 1 Only</button>
-      <button class="btn-sm" onclick="selectMonitors(2)">Monitor 2 Only</button>
+  <!-- Row 1: Video Streamer + Photo Gallery Slideshow -->
+  <div class="grid-2col">
+    <!-- Card 1: YouTube & Local Video -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 15 12 10 15 10 9"/></svg>
+        </div>
+        <h3>1. YouTube, Web Stream &amp; Local Video Caster</h3>
+      </div>
+      <p class="sub">Stream any YouTube video, live stream URL, search query, or local movie with instant seeking and infinite 24/7 loop.</p>
+      <div class="row">
+        <input type="text" id="ytInput" placeholder="Paste YouTube URL, search phrase, or local file path...">
+      </div>
+      <div class="row" style="justify-content:space-between;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12.5px;font-weight:600;color:#475569;">Start (s):
+            <input type="number" id="startSec" style="width:74px;margin-left:4px;" min="0" value="0">
+          </label>
+          <label class="check-pill">
+            <input type="checkbox" id="chkLoopVideo" onchange="applySettings()">
+            <span>Loop Video Continuously</span>
+          </label>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;margin-bottom:0;">
+        <button class="btn-primary" style="flex:1.6;" onclick="castYT()">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Stream Video to NVR
+        </button>
+        <button class="btn-secondary" style="flex:1;" onclick="pickHostFile('video')">
+          <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Browse Video File...
+        </button>
+      </div>
     </div>
-    <div class="mon-list" id="monList">
-      {mon_checks_html}
+
+    <!-- Card 2: Photo Gallery & Single Picture Slideshow -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </div>
+        <h3>2. Picture &amp; Gallery Slideshow Studio</h3>
+      </div>
+      <p class="sub">Display a single picture or run a smooth folder slideshow with configurable timer, random shuffle, and instant slide stepping.</p>
+      <div class="row">
+        <input type="text" id="galleryFolder" placeholder="Select a picture folder or individual image files..." value="{self.engine.gallery_folder}">
+        <button class="btn-secondary" onclick="pickHostFile('folder')" title="Select a Folder of Pictures">
+          <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Folder...
+        </button>
+        <button class="btn-secondary" onclick="pickHostFile('pictures')" title="Select One or Multiple Picture Files">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Pictures...
+        </button>
+      </div>
+      <div class="row">
+        <label style="font-size:12.5px;font-weight:600;color:#475569;">Timer (sec):
+          <input type="number" id="galleryTimer" value="{self.engine.gallery_interval}" min="1" max="3600" style="width:70px;margin-left:4px;">
+        </label>
+        <label class="check-pill">
+          <input type="checkbox" id="chkGalleryShuffle">
+          <span>Shuffle Order</span>
+        </label>
+        <button class="btn-secondary" onclick="stepGallery(-1)">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          Prev
+        </button>
+        <button class="btn-secondary" onclick="stepGallery(1)">
+          Next
+          <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div class="row" style="margin-top:12px;margin-bottom:0;">
+        <button class="btn-primary" style="width:100%;" onclick="startGallery()">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start Picture / Slideshow on NVR
+        </button>
+      </div>
     </div>
-    <div class="row" style="gap: 16px; margin-bottom: 12px; font-size: 13px;">
-      <label><input type="checkbox" id="chkAudio" checked> 🔊 Stream PC Speaker Audio (WASAPI Loopback)</label>
-      <label><input type="checkbox" id="chkCursor" checked> 🖱️ Show Mouse Pointer</label>
-    </div>
-    <button class="btn btn-screen" style="margin-bottom:0;" onclick="castDesktop()">🖥️ Mirror Selected Monitor(s) to NVR</button>
   </div>
 
-  <div class="card">
-    <h3>💻 4. Meeting-Style Browser Tab / Window / Screen Share (with Audio)</h3>
-    <p class="sub">Works like Google Meet / Zoom: pick a specific Chrome Tab (with tab audio), Application Window, or Screen.</p>
-    <button class="btn btn-meet" style="margin-bottom:0;" onclick="startMeetingShare()">📹 Share Browser Tab / Window / Screen</button>
-    <video id="previewVideo" autoplay muted playsinline></video>
+  <!-- Row 2: Multi-Monitor Desktop Mirroring + Meeting Screen Share -->
+  <div class="grid-2col">
+    <!-- Card 3: Multi-Monitor Desktop Mirror -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3>3. Multi-Monitor PC Desktop Mirroring</h3>
+      </div>
+      <p class="sub">Mirror any individual monitor or all monitors combined directly to your NVR with live PC speaker audio.</p>
+      <div class="row">
+        <button class="btn-secondary" onclick="selectMonitors('all')">Select All Displays</button>
+        <button class="btn-secondary" onclick="selectMonitors(1)">Monitor 1 Only</button>
+        <button class="btn-secondary" onclick="selectMonitors(2)">Monitor 2 Only</button>
+      </div>
+      <div class="mon-list" id="monList">
+        {mon_checks_html}
+      </div>
+      <div class="row" style="margin-bottom:12px;">
+        <label class="check-pill">
+          <input type="checkbox" id="chkAudio" checked onchange="applySettings()">
+          <span>PC Speaker Audio</span>
+        </label>
+        <label class="check-pill">
+          <input type="checkbox" id="chkCursor" checked onchange="applySettings()">
+          <span>Show Mouse Pointer</span>
+        </label>
+      </div>
+      <button class="btn-primary" style="width:100%;" onclick="castDesktop()">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Mirror Selected Monitor(s) to NVR
+      </button>
+    </div>
+
+    <!-- Card 4: Meeting-Style Tab / Window Share -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24"><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/><polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3>4. Meeting-Style Browser Tab / Window Share</h3>
+      </div>
+      <p class="sub">Works like Google Meet or Zoom: choose a single browser tab (with tab audio), an application window, or a display.</p>
+      <button class="btn-primary" style="width:100%;" onclick="startMeetingShare()">
+        <svg viewBox="0 0 24 24"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+        Choose Browser Tab / Window / Screen to Share
+      </button>
+      <video id="previewVideo" autoplay muted playsinline></video>
+    </div>
   </div>
 
+  <!-- Card 5: Stream Quality & Encoding Settings -->
   <div class="card">
-    <h3>⚙️ 5. Flexibility & Stream Tuning Settings</h3>
+    <div class="card-header" style="margin-bottom:12px;">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      </div>
+      <h3>5. Stream Quality &amp; NVR Encoding Settings</h3>
+    </div>
     <div class="settings-grid">
-      <label>Main Resolution
+      <label>Main Stream Resolution
         <select id="selRes" onchange="applySettings()">
           <option value="1280x720">1280x720 (720p HD)</option>
-          <option value="1920x1080">1920x1080 (1080p FHD)</option>
+          <option value="1920x1080">1920x1080 (1080p Full HD)</option>
           <option value="854x480">854x480 (480p Fast)</option>
         </select>
       </label>
       <label>Aspect Ratio Fit
         <select id="selAspect" onchange="applySettings()">
           <option value="fit">Fit / Letterbox (Keep Aspect)</option>
-          <option value="stretch">Stretch to Fill NVR Screen</option>
+          <option value="stretch">Stretch to Fill Screen</option>
           <option value="crop">Center Crop to 16:9</option>
         </select>
       </label>
       <label>Frame Rate (FPS)
         <select id="selFps" onchange="applySettings()">
-          <option value="25">25 FPS (PAL CCTV Std)</option>
+          <option value="25">25 FPS (PAL NVR Std)</option>
           <option value="30">30 FPS (Smooth)</option>
           <option value="15">15 FPS (Low CPU)</option>
         </select>
@@ -205,18 +524,13 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
       </label>
       <label>NVR Audio Codec
         <select id="selAudio" onchange="applySettings()">
-          <option value="pcm_mulaw">G.711u (pcm_mulaw CCTV)</option>
-          <option value="pcm_alaw">G.711a (pcm_alaw CCTV)</option>
-          <option value="aac">AAC 16kHz Mono (NVR)</option>
-          <option value="aac_hq">AAC 44.1kHz Stereo (VLC)</option>
+          <option value="pcm_mulaw">G.711u (pcm_mulaw NVR)</option>
+          <option value="pcm_alaw">G.711a (pcm_alaw NVR)</option>
+          <option value="aac">AAC 16kHz Mono</option>
+          <option value="aac_hq">AAC 44.1kHz Stereo</option>
           <option value="none">Mute (Video Only)</option>
         </select>
       </label>
-    </div>
-
-    <div class="code-box" style="margin-top: 8px;">
-      <strong>Main Stream:</strong> rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main<br>
-      <strong>Sub Stream:</strong> rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/sub
     </div>
   </div>
 </div>
@@ -225,6 +539,15 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
 let mediaRecorder = null;
 let displayStream = null;
 let sendChain = Promise.resolve();
+
+function copyText(txt, btn) {{
+  navigator.clipboard.writeText(txt).catch(() => {{}});
+  if (btn) {{
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => {{ btn.textContent = orig; }}, 1200);
+  }}
+}}
 
 function selectMonitors(target) {{
   const cbs = document.querySelectorAll('.mon-cb');
@@ -253,36 +576,42 @@ async function applySettings() {{
     loop_video: document.getElementById('chkLoopVideo').checked,
     selected_monitors: getCheckedMonitors()
   }};
-  await fetch('/api/settings', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify(payload)
-  }});
+  try {{
+    await fetch('/api/settings', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(payload)
+    }});
+  }} catch (_) {{}}
 }}
 
 async function togglePause() {{
-  await fetch('/api/player_sync', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ event: 'toggle_pause', source: 'Web Studio' }})
-  }});
-  setTimeout(refreshStatus, 400);
+  try {{
+    await fetch('/api/player_sync', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ event: 'toggle_pause', source: 'Web Studio' }})
+    }});
+    setTimeout(refreshStatus, 300);
+  }} catch (_) {{}}
 }}
 
 async function seekDelta(delta) {{
-  await fetch('/api/player_sync', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ event: 'seek', delta_sec: delta, source: 'Web Studio' }})
-  }});
-  setTimeout(refreshStatus, 500);
+  try {{
+    await fetch('/api/player_sync', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ event: 'seek', delta_sec: delta, source: 'Web Studio' }})
+    }});
+    setTimeout(refreshStatus, 350);
+  }} catch (_) {{}}
 }}
 
 async function castYT() {{
   const url = document.getElementById('ytInput').value.trim();
   const start_sec = parseInt(document.getElementById('startSec').value || '0', 10) || 0;
   const loop = document.getElementById('chkLoopVideo').checked;
-  if (!url) return alert('Paste a YouTube link, video URL, local file path, or search query first!');
+  if (!url) return alert('Please paste a YouTube URL, video link, local file path, or search query.');
   stopLocalMediaCapture();
   await applySettings();
   await fetch('/api/youtube', {{
@@ -290,37 +619,40 @@ async function castYT() {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ url, start_sec, loop, source: 'Web Studio' }})
   }});
-  setTimeout(refreshStatus, 600);
+  setTimeout(refreshStatus, 500);
 }}
 
 async function pickHostFile(kind) {{
-  const r = await fetch('/api/browse_dialog', {{
-    method: 'POST',
-    headers: {{ 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ kind }})
-  }});
-  const d = await r.json();
-  if (d && d.path) {{
-    if (kind === 'folder') {{
-      document.getElementById('galleryFolder').value = d.path;
-    }} else if (kind === 'video') {{
-      document.getElementById('ytInput').value = d.path;
-      const loop = document.getElementById('chkLoopVideo').checked;
-      await fetch('/api/file', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ filepath: d.path, loop, source: 'Web Studio' }})
-      }});
-      setTimeout(refreshStatus, 600);
+  try {{
+    const r = await fetch('/api/browse_dialog', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ kind }})
+    }});
+    const d = await r.json();
+    if (d && d.path) {{
+      if (kind === 'folder' || kind === 'pictures') {{
+        document.getElementById('galleryFolder').value = d.path;
+        startGallery();
+      }} else if (kind === 'video') {{
+        document.getElementById('ytInput').value = d.path;
+        const loop = document.getElementById('chkLoopVideo').checked;
+        await fetch('/api/file', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ filepath: d.path, loop, source: 'Web Studio' }})
+        }});
+        setTimeout(refreshStatus, 500);
+      }}
     }}
-  }}
+  }} catch (_) {{}}
 }}
 
 async function startGallery() {{
   const folder = document.getElementById('galleryFolder').value.trim();
   const interval_sec = parseInt(document.getElementById('galleryTimer').value || '5', 10) || 5;
   const shuffle = document.getElementById('chkGalleryShuffle').checked;
-  if (!folder) return alert('Select or enter a Picture Folder path first!');
+  if (!folder) return alert('Select a picture folder or picture files first!');
   stopLocalMediaCapture();
   await applySettings();
   await fetch('/api/gallery', {{
@@ -328,7 +660,7 @@ async function startGallery() {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ action: 'start', folder, interval_sec, shuffle, source: 'Web Studio' }})
   }});
-  setTimeout(refreshStatus, 600);
+  setTimeout(refreshStatus, 400);
 }}
 
 async function stepGallery(step) {{
@@ -337,7 +669,7 @@ async function stepGallery(step) {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ action: 'step', step }})
   }});
-  setTimeout(refreshStatus, 300);
+  setTimeout(refreshStatus, 250);
 }}
 
 async function castDesktop() {{
@@ -349,7 +681,7 @@ async function castDesktop() {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ monitors, source: 'Web Studio' }})
   }});
-  setTimeout(refreshStatus, 600);
+  setTimeout(refreshStatus, 400);
 }}
 
 async function stopCast() {{
@@ -359,12 +691,12 @@ async function stopCast() {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ source: 'Web Studio' }})
   }});
-  setTimeout(refreshStatus, 600);
+  setTimeout(refreshStatus, 400);
 }}
 
 function stopLocalMediaCapture() {{
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {{
-    try {{ mediaRecorder.stop(); }} catch (e) {{}}
+    try {{ mediaRecorder.stop(); }} catch (_) {{}}
   }}
   if (displayStream) {{
     displayStream.getTracks().forEach(t => t.stop());
@@ -381,7 +713,7 @@ async function startMeetingShare() {{
       window.location.href = 'http://localhost:' + window.location.port + '/?autoshare=1';
       return;
     }}
-    alert('Screen sharing requires http://localhost:8090 or Chrome.');
+    alert('Screen sharing requires http://localhost:8090 in Chrome or Edge.');
     return;
   }}
 
@@ -432,9 +764,9 @@ async function startMeetingShare() {{
     }};
 
     mediaRecorder.start(200);
-    setTimeout(refreshStatus, 600);
+    setTimeout(refreshStatus, 500);
   }} catch (err) {{
-    console.error('Meeting share cancelled or failed:', err);
+    console.error('Meeting share cancelled:', err);
   }}
 }}
 
@@ -442,23 +774,33 @@ async function refreshStatus() {{
   try {{
     const r = await fetch('/api/status');
     const d = await r.json();
-    document.getElementById('modeTxt').textContent = d.mode + (d.is_paused ? ' (PAUSED)' : '');
+    const modeEl = document.getElementById('modeTxt');
+    modeEl.textContent = d.mode + (d.is_paused ? ' • PAUSED' : '');
+    if (d.is_paused) {{
+      modeEl.style.background = '#fef3c7';
+      modeEl.style.color = '#b45309';
+    }} else {{
+      modeEl.style.background = '#dcfce7';
+      modeEl.style.color = '#15803d';
+    }}
+    const pauseTxt = document.getElementById('pauseBtnText');
+    if (pauseTxt) pauseTxt.textContent = d.is_paused ? 'Resume Stream' : 'Pause Stream';
     document.getElementById('sourceTxt').textContent = d.active_source || 'System';
     document.getElementById('titleTxt').textContent = d.title;
     const tSpan = document.getElementById('timeTxt');
     if (d.mode === 'YOUTUBE' || d.mode === 'FILE') {{
       const m = Math.floor((d.playback_sec || 0) / 60);
-      const s = (d.playback_sec || 0) % 60;
-      tSpan.textContent = `[Pos: ${{m}}m ${{s}}s${{d.loop_video ? ' • LOOP' : ''}}]`;
+      const s = String((d.playback_sec || 0) % 60).padStart(2, '0');
+      tSpan.textContent = `Playback Position: ${{m}}:${{s}}${{d.loop_video ? '  •  Loop Active' : ''}}`;
     }} else if (d.mode === 'GALLERY' && d.gallery) {{
-      tSpan.textContent = `[Slide ${{d.gallery.index + 1}}/${{d.gallery.count}} • ${{d.gallery.interval}}s]`;
+      tSpan.textContent = `Slide ${{d.gallery.index + 1}} of ${{d.gallery.count}}  •  Timer: ${{d.gallery.interval}}s${{d.gallery.shuffle ? '  •  Shuffle' : ''}}`;
     }} else {{
-      tSpan.textContent = '';
+      tSpan.textContent = `Broadcasting live on ${{d.rtsp_main}}`;
     }}
-  }} catch (e) {{}}
+  }} catch (_) {{}}
 }}
 
-setInterval(refreshStatus, 1500);
+setInterval(refreshStatus, 1400);
 
 window.addEventListener('DOMContentLoaded', () => {{
   refreshStatus();
@@ -534,7 +876,6 @@ window.addEventListener('DOMContentLoaded', () => {{
             loop = data.get("loop")
             source = data.get("source", "Web / Extension")
             if url:
-                import os
                 if os.path.isfile(url):
                     self.engine.start_local_file_stream(url, start_sec=start_sec, loop=loop, source=source)
                 else:
