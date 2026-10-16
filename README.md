@@ -8,11 +8,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
 <p align="center">
-  <img src="assets/nvr_cast_hub_hero.png" alt="NVR Cast Hub v0.1.0-beta Hero Showcase" width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/nvr_cast_hub_demo.gif" alt="NVR Cast Hub v0.1.0-beta Live Animated Demo" width="100%">
+  <img src="assets/nvr_cast_hub_demo.gif" alt="NVR Cast Hub v0.1.0-beta — Clean Animated Overview" width="100%">
 </p>
 
 ---

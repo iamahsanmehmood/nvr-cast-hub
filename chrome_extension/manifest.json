@@ -9,10 +9,12 @@
     "storage"
   ],
   "host_permissions": [
-    "http://localhost:8090/*",
-    "http://127.0.0.1:8090/*",
-    "http://192.168.*/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Cast to NVR (v0.1.0-beta)"

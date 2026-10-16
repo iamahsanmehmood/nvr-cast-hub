@@ -6,17 +6,31 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    width: 340px;
+    width: 350px;
     margin: 0;
     padding: 14px;
     background: #0f172a;
     color: #f8fafc;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
   h3 {
-    margin: 0 0 4px 0;
+    margin: 0;
     color: #38bdf8;
-    font-size: 16px;
+    font-size: 15.5px;
+  }
+  .badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: #f59e0b;
+    color: #0f172a;
   }
   p.sub {
     margin: 0 0 10px 0;
@@ -30,7 +44,7 @@
     border-left: 3px solid #4ade80;
     font-size: 12px;
     margin-bottom: 10px;
-    line-height: 1.4;
+    line-height: 1.45;
   }
   .btn {
     width: 100%;
@@ -42,14 +56,16 @@
     cursor: pointer;
     margin-bottom: 7px;
     color: #fff;
+    transition: opacity 0.15s;
   }
+  .btn:hover { opacity: 0.92; }
   .btn-yt { background: #ef4444; }
   .btn-meet { background: #8b5cf6; }
   .btn-screen { background: #2563eb; }
-  .btn-stop { background: #475569; }
+  .btn-stop { background: #475569; margin-bottom: 0; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 7px; }
   .grid-3 .btn { margin-bottom: 0; padding: 8px 4px; font-size: 11px; }
-  .row { display: flex; gap: 6px; margin-top: 8px; }
+  .row { display: flex; gap: 6px; margin-bottom: 7px; }
   input {
     flex: 1;
     padding: 7px 9px;
@@ -65,13 +81,18 @@
     border-radius: 6px;
     background: #334155;
     color: #fff;
-    font-size: 11px;
+    font-size: 11.5px;
+    font-weight: 600;
     cursor: pointer;
   }
+  .small-btn:hover { background: #475569; }
 </style>
 </head>
 <body>
-  <h3>📺 NVR Cast Hub v0.1.0-beta</h3>
+  <div class="header-row">
+    <h3>📺 NVR Cast Hub v0.1.0-beta</h3>
+    <span class="badge" id="connBadge">CHECKING</span>
+  </div>
   <p class="sub">Universal NVR Caster (Hikvision / Dahua / ONVIF)</p>
 
   <div class="status" id="statusBox">
@@ -79,8 +100,8 @@
     <strong>Playing:</strong> <span id="titleTxt">Connecting to Hub...</span>
   </div>
 
-  <button class="btn btn-yt" id="btnCastTabVideo">▶ Cast Current Tab's Video URL to NVR</button>
-  <button class="btn btn-meet" id="btnShareScreen">💻 Share Tab / Window + Audio (Meeting Mode)</button>
+  <button class="btn btn-yt" id="btnCastCurrentTab">▶ Cast Current Tab's Video URL to NVR</button>
+  <button class="btn btn-meet" id="btnShareMeeting">💻 Share Tab / Window + Audio (Meeting Mode)</button>
 
   <div class="grid-3">
     <button class="btn btn-screen" id="btnMon1">🖥️ Monitor 1</button>
@@ -88,10 +109,15 @@
     <button class="btn btn-screen" id="btnMonAll">🖥️ All Screens</button>
   </div>
 
+  <div class="row">
+    <input type="text" id="customQuery" placeholder="Paste YouTube URL or search phrase...">
+    <button class="small-btn" id="btnCastCustom">▶ Cast</button>
+  </div>
+
   <button class="btn btn-stop" id="btnStop">⏹ Stop / Return to Standby</button>
 
-  <div class="row">
-    <input type="text" id="hubUrl" placeholder="http://localhost:8090">
+  <div class="row" style="margin-top: 8px; margin-bottom: 0;">
+    <input type="text" id="serverUrl" value="http://127.0.0.1:8090" placeholder="http://127.0.0.1:8090">
     <button class="small-btn" id="btnSaveUrl">Save</button>
   </div>
 
