@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "NVR Cast Hub — Universal NVR & CCTV Caster (v0.1.0-beta)",
+  "version": "0.1.0",
+  "description": "Cast YouTube videos, web streams, Meeting-style browser tabs, or Multi-Monitor PC desktops directly to Hikvision, Dahua, Uniview, Reolink & ONVIF NVRs.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:8090/*",
+    "http://127.0.0.1:8090/*",
+    "http://192.168.*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Cast to NVR (v0.1.0-beta)"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "content_youtube.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

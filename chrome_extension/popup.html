@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NVR Cast Hub v0.1.0-beta</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    width: 340px;
+    margin: 0;
+    padding: 14px;
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h3 {
+    margin: 0 0 4px 0;
+    color: #38bdf8;
+    font-size: 16px;
+  }
+  p.sub {
+    margin: 0 0 10px 0;
+    color: #94a3b8;
+    font-size: 12px;
+  }
+  .status {
+    background: #1e293b;
+    padding: 10px;
+    border-radius: 8px;
+    border-left: 3px solid #4ade80;
+    font-size: 12px;
+    margin-bottom: 10px;
+    line-height: 1.4;
+  }
+  .btn {
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 7px;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    margin-bottom: 7px;
+    color: #fff;
+  }
+  .btn-yt { background: #ef4444; }
+  .btn-meet { background: #8b5cf6; }
+  .btn-screen { background: #2563eb; }
+  .btn-stop { background: #475569; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+  .grid-3 .btn { margin-bottom: 0; padding: 8px 4px; font-size: 11px; }
+  .row { display: flex; gap: 6px; margin-top: 8px; }
+  input {
+    flex: 1;
+    padding: 7px 9px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #fff;
+    font-size: 12px;
+  }
+  .small-btn {
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: #334155;
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <h3>📺 NVR Cast Hub v0.1.0-beta</h3>
+  <p class="sub">Universal NVR Caster (Hikvision / Dahua / ONVIF)</p>
+
+  <div class="status" id="statusBox">
+    <strong>Mode:</strong> <span id="modeTxt">Checking...</span><br>
+    <strong>Playing:</strong> <span id="titleTxt">Connecting to Hub...</span>
+  </div>
+
+  <button class="btn btn-yt" id="btnCastTabVideo">▶ Cast Current Tab's Video URL to NVR</button>
+  <button class="btn btn-meet" id="btnShareScreen">💻 Share Tab / Window + Audio (Meeting Mode)</button>
+
+  <div class="grid-3">
+    <button class="btn btn-screen" id="btnMon1">🖥️ Monitor 1</button>
+    <button class="btn btn-screen" id="btnMon2">🖥️ Monitor 2</button>
+    <button class="btn btn-screen" id="btnMonAll">🖥️ All Screens</button>
+  </div>
+
+  <button class="btn btn-stop" id="btnStop">⏹ Stop / Return to Standby</button>
+
+  <div class="row">
+    <input type="text" id="hubUrl" placeholder="http://localhost:8090">
+    <button class="small-btn" id="btnSaveUrl">Save</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

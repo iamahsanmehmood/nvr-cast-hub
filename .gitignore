@@ -1,0 +1,15 @@
+# Build & PyInstaller outputs
+build/
+dist/
+*.spec
+*.exe
+
+# Runtime binaries & logs
+bin/
+*.log
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archives
+*.zip
