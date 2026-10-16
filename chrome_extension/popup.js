@@ -171,10 +171,16 @@ async function refreshStatus() {
     chkLoop.checked = d.loop_video;
   }
   if (posTxt) {
-    if (d.mode === "YOUTUBE" || d.mode === "FILE") {
+    if (d.mode === "YOUTUBE" || d.mode === "FILE" || (d.mode === "BROWSER" && (d.playback_sec > 0 || d.duration_sec > 0))) {
       const m = Math.floor((d.playback_sec || 0) / 60);
       const s = String((d.playback_sec || 0) % 60).padStart(2, "0");
-      posTxt.textContent = `Position: ${m}:${s}${d.loop_video ? "  •  Loop Enabled" : ""}`;
+      let durStr = "";
+      if (d.duration_sec > 0) {
+        const dm = Math.floor(d.duration_sec / 60);
+        const ds = String(d.duration_sec % 60).padStart(2, "0");
+        durStr = ` / ${dm}:${ds}`;
+      }
+      posTxt.textContent = `Position: ${m}:${s}${durStr}${d.loop_video ? "  •  Loop Enabled" : ""}`;
     } else if (d.mode === "GALLERY" && d.gallery) {
       posTxt.textContent = `Slide ${d.gallery.index + 1} of ${d.gallery.count} (${d.gallery.interval}s timer${d.gallery.shuffle ? ", Shuffle" : ""})`;
     } else {
@@ -220,59 +226,67 @@ if (btnSeekBack) btnSeekBack.addEventListener("click", () => sendSeekDelta(-10))
 const btnSeekFwd = document.getElementById("btnSeekFwd");
 if (btnSeekFwd) btnSeekFwd.addEventListener("click", () => sendSeekDelta(10));
 
-// 2. Cast Current Tab Video with Live Seek/Pause Sync
-const btnCastCurrentTab = document.getElementById("btnCastCurrentTab");
-if (btnCastCurrentTab) {
-  btnCastCurrentTab.addEventListener("click", () => {
-    getActiveTabSafe((tab) => {
-      if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
-        showToast("Open a YouTube or web video tab first to cast it.", true);
-        return;
-      }
+function castLiveTabStream(activatePip = true) {
+  getActiveTabSafe((tab) => {
+    if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
+      showToast("Open a web video tab first to cast it.", true);
+      return;
+    }
 
-      sendToTabSafe(tab, { action: "attachSyncOnly" }, async (info) => {
-        const startSec = info && typeof info.time === "number" ? info.time : 0;
-        const detectedSrc = info && info.src ? info.src : null;
-        const targetUrl = detectedSrc || tab.url;
-        const loop = chkLoop ? chkLoop.checked : false;
+    const loop = chkLoop ? chkLoop.checked : false;
+    showToast("Starting live Chrome video stream to NVR...");
 
-        showToast("Casting tab video to NVR...");
-        const r = await hubRequest("/api/youtube", "POST", {
-          url: targetUrl,
-          start_sec: startSec,
-          loop,
-          source: "Chrome Extension (Tab Video Sync)",
-        });
-        if (!r.ok) {
-          showToast("Could not connect to NVR Cast Hub on port 8090.", true);
-        } else {
-          showToast("Streaming to NVR with live seek & pause sync!");
+    sendToTabSafe(
+      tab,
+      {
+        action: "startDirectLiveCast",
+        activatePip,
+        loop,
+      },
+      (res) => {
+        if (res && res.ok) {
+          showToast("Live Chrome stream active! Continues across tab switches.");
+          setTimeout(refreshStatus, 400);
+          return;
         }
-        refreshStatus();
-      });
-    });
+        // Fallback: if the page has no direct <video> element (e.g. iframe player or web app),
+        // capture the entire tab live via offscreen tabCapture!
+        chrome.runtime.sendMessage(
+          {
+            action: "startLiveVideoStream",
+            tabId: tab.id,
+            label: tab.title || "Live Chrome Tab Stream",
+            url: tab.url,
+            loop,
+            acquireTabLock: true,
+            pumpTabFrames: true,
+            source: "Chrome Extension (Live Tab)",
+          },
+          (bgRes) => {
+            void chrome.runtime.lastError;
+            if (bgRes && bgRes.ok) {
+              showToast("Live Chrome tab stream active! Continues across tab switches.");
+            } else {
+              showToast("Could not connect to NVR Cast Hub on port 8090.", true);
+            }
+            setTimeout(refreshStatus, 400);
+          }
+        );
+      }
+    );
   });
 }
 
-// 3. PiP-Style Live HTML5 <video>.captureStream() Mirroring
+// 2. Cast Current Tab Video (Direct Live Stream from Chrome Player)
+const btnCastCurrentTab = document.getElementById("btnCastCurrentTab");
+if (btnCastCurrentTab) {
+  btnCastCurrentTab.addEventListener("click", () => castLiveTabStream(true));
+}
+
+// 3. PiP-Style Live Video Player Stream
 const btnPipMirror = document.getElementById("btnPipMirror");
 if (btnPipMirror) {
-  btnPipMirror.addEventListener("click", () => {
-    getActiveTabSafe((tab) => {
-      if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
-        showToast("Open a web page with an active video player first.", true);
-        return;
-      }
-      sendToTabSafe(tab, { action: "triggerPageVideoSync", pipMode: true }, (res) => {
-        if (res && res.ok) {
-          showToast("Started PiP Live Video Stream to NVR!");
-        } else {
-          showToast("No HTML5 video found on this tab.", true);
-        }
-        setTimeout(refreshStatus, 500);
-      });
-    });
-  });
+  btnPipMirror.addEventListener("click", () => castLiveTabStream(true));
 }
 
 const btnShareMeeting = document.getElementById("btnShareMeeting");

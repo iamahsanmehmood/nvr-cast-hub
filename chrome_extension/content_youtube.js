@@ -1,21 +1,28 @@
 (function () {
-  if (window.__nvrCastContentInjected) return;
-  window.__nvrCastContentInjected = true;
+  // Clean up any previous content script instance in this tab so old listeners/timers never conflict
+  if (typeof window.__nvrCastCleanup === "function") {
+    try {
+      window.__nvrCastCleanup();
+    } catch (_) {}
+  }
 
-  let isSyncedWithNVR = false;
+  let isCastingToNVR = false;
+  let activeSessionId = "";
   let boundVideo = null;
-  let lastSyncedUrl = "";
-  let lastSeekSentAt = 0;
-  let seekDebounceTimer = null;
-  let pipRecorder = null;
-  let pollIntervalId = null;
+  let frameWorker = null;
+  let frameInFlight = false;
+  let captureCanvas = null;
+  let captureCtx = null;
+  let uiPollTimer = null;
+  let directFetchBase = "http://127.0.0.1:8090";
+  let useRuntimeFallback = false;
 
   const CAST_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0;"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>`;
 
   function safeSendRuntime(payload, cb) {
     try {
       if (!chrome || !chrome.runtime || !chrome.runtime.id) {
-        if (pollIntervalId) clearInterval(pollIntervalId);
+        stopLocalCaptureOnly();
         return;
       }
       chrome.runtime.sendMessage(payload, (resp) => {
@@ -23,146 +30,261 @@
         if (cb) cb(resp);
       });
     } catch (_) {
-      if (pollIntervalId) clearInterval(pollIntervalId);
+      stopLocalCaptureOnly();
     }
+  }
+
+  function findBestVideoElement() {
+    const vids = Array.from(document.querySelectorAll("video"));
+    if (!vids.length) return null;
+    // Prefer a playing video or the largest video element on the page
+    let best = vids[0];
+    let bestScore = -1;
+    for (const v of vids) {
+      const area = (v.videoWidth || v.clientWidth || 1) * (v.videoHeight || v.clientHeight || 1);
+      const playingBonus = !v.paused && v.readyState >= 2 ? 10000000 : 0;
+      const score = area + playingBonus;
+      if (score > bestScore) {
+        bestScore = score;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  function getCleanVideoTitle() {
+    let t = document.title || "Live Chrome Video";
+    t = t.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube$/i, "").trim();
+    return t || "Live Chrome Video";
   }
 
   function updateButtonUI(btn, statusData) {
     if (!btn || !btn.style) return;
-    if (isSyncedWithNVR) {
-      btn.innerHTML = `${CAST_SVG}<span>NVR Synced (Stop)</span>`;
+    if (isCastingToNVR) {
+      btn.innerHTML = `${CAST_SVG}<span>NVR Live (Stop)</span>`;
       btn.style.background = "#16a34a";
       btn.style.color = "#ffffff";
       btn.style.borderColor = "#15803d";
-      btn.title = "Live Seek & Pause Sync is ACTIVE on NVR. Scrubbing or pausing updates the NVR. Click to stop.";
+      btn.title = "Streaming live Chrome video directly to NVR (continues across tabs). Click to stop.";
     } else if (statusData && statusData.mode && statusData.mode !== "STANDBY" && statusData.mode !== "STOPPED") {
       btn.innerHTML = `${CAST_SVG}<span>Cast to NVR (${statusData.mode})</span>`;
       btn.style.background = "#ffffff";
       btn.style.color = "#0f172a";
       btn.style.borderColor = "#cbd5e1";
-      btn.title = `Active on NVR: [${statusData.mode}] ${statusData.title}. Click to switch NVR to this video.`;
+      btn.title = `Active on NVR: [${statusData.mode}] ${statusData.title}. Click to cast this video.`;
     } else {
       btn.innerHTML = `${CAST_SVG}<span>Cast to NVR</span>`;
       btn.style.background = "#ffffff";
       btn.style.color = "#0f172a";
       btn.style.borderColor = "#cbd5e1";
-      btn.title = "Cast this video to NVR with real-time Forward/Backward Seek & Pause Sync";
+      btn.title = "Stream this live Chrome video player directly to NVR (with PiP & background tab continuity)";
     }
   }
 
-  function stopPipRecorder() {
-    if (pipRecorder && pipRecorder.state !== "inactive") {
-      try {
-        pipRecorder.stop();
-      } catch (_) {}
-    }
-    pipRecorder = null;
-  }
-
-  function onVideoSeeked() {
-    if (!isSyncedWithNVR || !boundVideo || pipRecorder) return;
-    const now = Date.now();
-    if (now - lastSeekSentAt < 600) return;
-    clearTimeout(seekDebounceTimer);
-    seekDebounceTimer = setTimeout(() => {
-      if (!isSyncedWithNVR || !boundVideo) return;
-      lastSeekSentAt = Date.now();
-      const targetSec = Math.floor(boundVideo.currentTime || 0);
-      safeSendRuntime({
-        action: "playerSync",
-        event: "seek",
-        time_sec: targetSec,
-        source: "Chrome Extension (Video Seek)",
-      });
-    }, 350);
-  }
-
-  function onVideoPause() {
-    if (!isSyncedWithNVR || !boundVideo || pipRecorder) return;
-    if (boundVideo.seeking) return;
-    safeSendRuntime({
-      action: "playerSync",
-      event: "pause",
-      time_sec: Math.floor(boundVideo.currentTime || 0),
-      source: "Chrome Extension (Video Pause)",
-    });
-  }
-
-  function onVideoPlay() {
-    if (!isSyncedWithNVR || !boundVideo || pipRecorder) return;
-    if (boundVideo.seeking) return;
-    safeSendRuntime({
-      action: "playerSync",
-      event: "play",
-      time_sec: Math.floor(boundVideo.currentTime || 0),
-      source: "Chrome Extension (Video Play)",
-    });
-  }
-
-  function attachVideoSyncListeners(v) {
-    if (boundVideo === v) return;
-    detachVideoSyncListeners();
-    boundVideo = v;
-    if (!boundVideo) return;
-    boundVideo.addEventListener("seeked", onVideoSeeked);
-    boundVideo.addEventListener("pause", onVideoPause);
-    boundVideo.addEventListener("play", onVideoPlay);
-  }
-
-  function detachVideoSyncListeners() {
-    if (!boundVideo) return;
+  function applyRemoteCommand(cmd) {
+    if (!cmd || !boundVideo) return;
     try {
-      boundVideo.removeEventListener("seeked", onVideoSeeked);
-      boundVideo.removeEventListener("pause", onVideoPause);
-      boundVideo.removeEventListener("play", onVideoPlay);
+      if (cmd.event === "pause") {
+        boundVideo.pause();
+      } else if (cmd.event === "play") {
+        boundVideo.play().catch(() => {});
+      } else if (cmd.event === "seek") {
+        if (typeof cmd.target_sec === "number") {
+          boundVideo.currentTime = Math.max(0, cmd.target_sec);
+        } else if (typeof cmd.delta_sec === "number") {
+          boundVideo.currentTime = Math.max(0, (boundVideo.currentTime || 0) + cmd.delta_sec);
+        }
+      }
     } catch (_) {}
-    boundVideo = null;
   }
 
-  function startPipCaptureStream(v, btn) {
-    try {
-      const stream = v.captureStream ? v.captureStream(25) : v.mozCaptureStream ? v.mozCaptureStream(25) : null;
-      if (!stream) return false;
+  function handleFrameResponse(res) {
+    if (!res) return;
+    if (res.stop) {
+      stopLocalCaptureOnly();
+      const btn = document.getElementById("nvr-cast-yt-btn");
+      if (btn) updateButtonUI(btn, null);
+      return;
+    }
+    if (boundVideo && typeof res.loop === "boolean") {
+      boundVideo.loop = res.loop;
+    }
+    if (res.cmd) {
+      applyRemoteCommand(res.cmd);
+    }
+  }
 
+  function pumpSingleFrame() {
+    if (!isCastingToNVR || frameInFlight) return;
+    const v = boundVideo && document.contains(boundVideo) ? boundVideo : findBestVideoElement();
+    if (!v) return;
+    boundVideo = v;
+
+    if (v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+
+    if (!captureCanvas) {
+      captureCanvas = document.createElement("canvas");
+      captureCanvas.width = 1280;
+      captureCanvas.height = 720;
+      captureCtx = captureCanvas.getContext("2d", { alpha: false });
+    }
+
+    frameInFlight = true;
+    try {
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      captureCtx.fillStyle = "#000000";
+      captureCtx.fillRect(0, 0, 1280, 720);
+      const scale = Math.min(1280 / vw, 720 / vh);
+      const dw = Math.round(vw * scale);
+      const dh = Math.round(vh * scale);
+      const dx = Math.round((1280 - dw) / 2);
+      const dy = Math.round((720 - dh) / 2);
+      captureCtx.drawImage(v, dx, dy, dw, dh);
+    } catch (_) {
+      frameInFlight = false;
+      return;
+    }
+
+    const curSec = Math.floor(v.currentTime || 0);
+    const durSec = Number.isFinite(v.duration) ? Math.floor(v.duration) : 0;
+    const isPaused = Boolean(v.paused);
+    const cleanTitle = getCleanVideoTitle();
+
+    if (!useRuntimeFallback) {
+      captureCanvas.toBlob(
+        (jpgBlob) => {
+          if (!jpgBlob || !isCastingToNVR) {
+            frameInFlight = false;
+            return;
+          }
+          fetch(`${directFetchBase}/api/browser_cast/frame`, {
+            method: "POST",
+            headers: {
+              "X-Session-Id": activeSessionId,
+              "X-Video-Time": String(curSec),
+              "X-Video-Duration": String(durSec),
+              "X-Video-Paused": isPaused ? "1" : "0",
+              "X-Video-Title": encodeURIComponent(cleanTitle),
+            },
+            body: jpgBlob,
+          })
+            .then((r) => r.json())
+            .then((res) => {
+              handleFrameResponse(res);
+              frameInFlight = false;
+            })
+            .catch(() => {
+              // Automatically switch to background.js runtime bridge if direct fetch is blocked
+              useRuntimeFallback = true;
+              frameInFlight = false;
+            });
+        },
+        "image/jpeg",
+        0.8
+      );
+    } else {
+      let dataUrl = "";
+      try {
+        dataUrl = captureCanvas.toDataURL("image/jpeg", 0.78);
+      } catch (_) {
+        frameInFlight = false;
+        return;
+      }
       safeSendRuntime(
         {
-          action: "startLiveVideoStream",
-          label: document.title || "Browser Video Player",
+          action: "pushVideoFrame",
+          frame: dataUrl,
+          session_id: activeSessionId,
+          time_sec: curSec,
+          duration_sec: durSec,
+          paused: isPaused,
+          title: cleanTitle,
         },
-        (resp) => {
-          if (!resp || !resp.ok) return;
-          let mimeType = "video/webm;codecs=vp8,opus";
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = "video/webm";
-          }
-          pipRecorder = new MediaRecorder(stream, {
-            mimeType,
-            videoBitsPerSecond: 1800000,
-          });
-          pipRecorder.ondataavailable = async (ev) => {
-            if (ev.data && ev.data.size > 0 && isSyncedWithNVR) {
-              const buf = await ev.data.arrayBuffer();
-              safeSendRuntime({
-                action: "pushVideoChunk",
-                chunk: Array.from(new Uint8Array(buf)),
-              });
-            }
-          };
-          pipRecorder.start(200);
-          isSyncedWithNVR = true;
-          updateButtonUI(btn, null);
+        (res) => {
+          handleFrameResponse(res);
+          frameInFlight = false;
         }
       );
-      return true;
-    } catch (_) {
-      return false;
     }
   }
 
-  function startSyncForCurrentVideo(btn, forcePipMode, notifyUserOnError) {
-    const v = document.querySelector("video");
-    const startSec = v ? Math.floor(v.currentTime || 0) : 0;
-    const isYouTube = window.location.hostname.includes("youtube.com");
+  function startWorkerFramePump() {
+    if (frameWorker) {
+      try {
+        frameWorker.terminate();
+      } catch (_) {}
+      frameWorker = null;
+    }
+    try {
+      const blob = new Blob(["setInterval(() => postMessage(1), 45);"], {
+        type: "application/javascript",
+      });
+      frameWorker = new Worker(URL.createObjectURL(blob));
+      frameWorker.onmessage = pumpSingleFrame;
+    } catch (_) {
+      // Fallback if page CSP restricts blob Worker creation
+      const id = setInterval(() => {
+        if (!isCastingToNVR) {
+          clearInterval(id);
+          return;
+        }
+        pumpSingleFrame();
+      }, 45);
+      frameWorker = { terminate: () => clearInterval(id) };
+    }
+  }
+
+  function stopLocalCaptureOnly() {
+    isCastingToNVR = false;
+    activeSessionId = "";
+    frameInFlight = false;
+    if (frameWorker) {
+      try {
+        frameWorker.terminate();
+      } catch (_) {}
+      frameWorker = null;
+    }
+    if (document.pictureInPictureElement && document.pictureInPictureElement === boundVideo) {
+      try {
+        document.exitPictureInPicture().catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  function startDirectLiveCast(btn, options = {}) {
+    const v = findBestVideoElement();
+    if (!v) {
+      if (options.notifyUserOnError) {
+        alert("No active HTML5 video player found on this page.");
+      }
+      return false;
+    }
+
+    boundVideo = v;
+    const sessionId = `chrome_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    activeSessionId = sessionId;
+
+    // Activate Chrome Picture-in-Picture when requested or on direct user click gesture
+    // so Chrome's hardware video decoder stays 100% active when switching tabs!
+    if (options.activatePip !== false && !document.pictureInPictureElement) {
+      try {
+        if (v.requestPictureInPicture && !v.disablePictureInPicture) {
+          v.requestPictureInPicture().catch(() => {});
+        }
+      } catch (_) {}
+    }
+
+    // Also register MediaSession auto-PiP handler for Chrome 120+
+    try {
+      if (navigator.mediaSession && navigator.mediaSession.setActionHandler) {
+        navigator.mediaSession.setActionHandler("enterpictureinpicture", () => {
+          if (boundVideo && boundVideo.requestPictureInPicture) {
+            boundVideo.requestPictureInPicture().catch(() => {});
+          }
+        });
+      }
+    } catch (_) {}
 
     if (btn && btn.style) {
       btn.innerHTML = `${CAST_SVG}<span>Connecting...</span>`;
@@ -170,46 +292,51 @@
       btn.style.color = "#1d4ed8";
     }
 
-    if (forcePipMode && v) {
-      if (startPipCaptureStream(v, btn)) return;
-    }
-
-    lastSyncedUrl = window.location.href;
-    lastSeekSentAt = Date.now();
-
+    const cleanTitle = getCleanVideoTitle();
     safeSendRuntime(
       {
-        action: "castYoutube",
+        action: "startLiveVideoStream",
+        label: cleanTitle,
         url: window.location.href,
-        start_sec: startSec,
-        source: isYouTube ? "Chrome Extension (YouTube Sync)" : "Chrome Extension (Web Video Sync)",
+        session_id: sessionId,
+        loop: options.loop,
+        acquireTabLock: Boolean(options.acquireTabLock),
+        pumpTabFrames: false,
+        source: "Chrome Extension (Live Player)",
       },
       (resp) => {
         if (resp && resp.ok) {
-          isSyncedWithNVR = true;
-          if (v) attachVideoSyncListeners(v);
-          updateButtonUI(btn, resp.status);
+          if (resp.baseUrl) {
+            directFetchBase = resp.baseUrl;
+          }
+          isCastingToNVR = true;
+          startWorkerFramePump();
+          pumpSingleFrame();
+          const curBtn = btn || document.getElementById("nvr-cast-yt-btn");
+          if (curBtn) updateButtonUI(curBtn, resp.status);
         } else {
-          isSyncedWithNVR = false;
-          updateButtonUI(btn, null);
-          if (notifyUserOnError) {
+          stopLocalCaptureOnly();
+          const curBtn = btn || document.getElementById("nvr-cast-yt-btn");
+          if (curBtn) updateButtonUI(curBtn, null);
+          if (options.notifyUserOnError) {
             alert("Could not connect to NVR Cast Hub on port 8090. Please ensure NVR Cast Hub is running on your PC.");
           }
         }
       }
     );
+    return true;
   }
 
-  function stopSync(btn) {
-    isSyncedWithNVR = false;
-    stopPipRecorder();
-    detachVideoSyncListeners();
+  function stopDirectLiveCast(btn) {
+    stopLocalCaptureOnly();
     safeSendRuntime({ action: "stopCast" }, () => {
-      updateButtonUI(btn, null);
+      const curBtn = btn || document.getElementById("nvr-cast-yt-btn");
+      if (curBtn) updateButtonUI(curBtn, null);
     });
   }
 
   function injectYouTubePlayerButton() {
+    if (!window.location.hostname.includes("youtube.com")) return;
     const rightControls = document.querySelector(".ytp-right-controls");
     if (!rightControls) return;
 
@@ -225,70 +352,85 @@
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (isSyncedWithNVR) {
-          stopSync(btn);
+        if (isCastingToNVR) {
+          stopDirectLiveCast(btn);
         } else {
-          startSyncForCurrentVideo(btn, false, true);
+          startDirectLiveCast(btn, {
+            activatePip: true,
+            acquireTabLock: true,
+            notifyUserOnError: true,
+          });
         }
       });
 
       rightControls.prepend(btn);
     }
-
-    if (isSyncedWithNVR && window.location.href !== lastSyncedUrl && window.location.pathname.startsWith("/watch")) {
-      startSyncForCurrentVideo(btn, false, false);
-    }
-
-    if (isSyncedWithNVR) {
-      const v = document.querySelector("video");
-      if (v && v !== boundVideo) attachVideoSyncListeners(v);
-    }
   }
 
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  function onRuntimeMessage(msg, sender, sendResponse) {
     if (!msg || !msg.action) return false;
-    if (msg.action === "attachSyncOnly") {
-      const v = document.querySelector("video");
-      isSyncedWithNVR = true;
-      lastSyncedUrl = window.location.href;
-      lastSeekSentAt = Date.now();
-      if (v) attachVideoSyncListeners(v);
+
+    if (msg.action === "startDirectLiveCast" || msg.action === "triggerPageVideoSync") {
       const btn = document.getElementById("nvr-cast-yt-btn");
-      updateButtonUI(btn, null);
-      sendResponse({
-        ok: true,
-        time: v ? Math.floor(v.currentTime || 0) : 0,
-        src: v && (v.currentSrc || v.src) && !(v.currentSrc || v.src).startsWith("blob:") ? v.currentSrc || v.src : null,
+      const v = findBestVideoElement();
+      if (!v) {
+        sendResponse({ ok: false, noVideo: true });
+        return false;
+      }
+      startDirectLiveCast(btn, {
+        activatePip: msg.activatePip !== false,
+        acquireTabLock: true,
+        loop: msg.loop,
+        notifyUserOnError: false,
       });
+      sendResponse({ ok: true, title: getCleanVideoTitle() });
       return false;
     }
-    if (msg.action === "triggerPageVideoSync") {
-      const btn = document.getElementById("nvr-cast-yt-btn");
-      startSyncForCurrentVideo(btn, Boolean(msg.pipMode), false);
-      sendResponse({ ok: true });
-      return false;
-    }
+
     if (msg.action === "stopPageVideoSync") {
       const btn = document.getElementById("nvr-cast-yt-btn");
-      isSyncedWithNVR = false;
-      stopPipRecorder();
-      detachVideoSyncListeners();
-      updateButtonUI(btn, null);
+      stopDirectLiveCast(btn);
       sendResponse({ ok: true });
       return false;
     }
-    return false;
-  });
 
-  pollIntervalId = setInterval(() => {
-    if (window.location.hostname.includes("youtube.com")) {
-      injectYouTubePlayerButton();
-      const btn = document.getElementById("nvr-cast-yt-btn");
-      if (btn && !isSyncedWithNVR) {
-        safeSendRuntime({ action: "getStatus" }, (res) => {
-          if (res && res.ok) updateButtonUI(btn, res.status);
-        });
+    return false;
+  }
+
+  chrome.runtime.onMessage.addListener(onRuntimeMessage);
+
+  uiPollTimer = setInterval(() => {
+    injectYouTubePlayerButton();
+    const btn = document.getElementById("nvr-cast-yt-btn");
+    if (!btn) return;
+    safeSendRuntime({ action: "getStatus" }, (resp) => {
+      if (resp && resp.ok && resp.status) {
+        const st = resp.status;
+        if (
+          isCastingToNVR &&
+          (st.mode !== "BROWSER" || (st.browser_session_id && st.browser_session_id !== activeSessionId))
+        ) {
+          stopLocalCaptureOnly();
+        }
+        updateButtonUI(btn, st);
       }
-    }
+    });
   }, 2000);
+
+  window.__nvrCastCleanup = function () {
+    stopLocalCaptureOnly();
+    if (uiPollTimer) {
+      clearInterval(uiPollTimer);
+      uiPollTimer = null;
+    }
+    try {
+      chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+    } catch (_) {}
+    const oldBtn = document.getElementById("nvr-cast-yt-btn");
+    if (oldBtn && oldBtn.parentNode) {
+      oldBtn.parentNode.removeChild(oldBtn);
+    }
+  };
+
+  injectYouTubePlayerButton();
 })();

@@ -1,6 +1,8 @@
+import base64
 import json
 import os
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler
 from desktop_app.engine import NVRCastEngine, APP_VERSION
 
@@ -27,7 +29,11 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-Session-Id, X-Video-Time, X-Video-Duration, X-Video-Paused, X-Video-Title",
+        )
+        self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -695,8 +701,9 @@ async function stopCast() {{
 }}
 
 function stopLocalMediaCapture() {{
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {{
-    try {{ mediaRecorder.stop(); }} catch (_) {{}}
+  if (window.__meetingWorker) {{
+    try {{ window.__meetingWorker.terminate(); }} catch (_) {{}}
+    window.__meetingWorker = null;
   }}
   if (displayStream) {{
     displayStream.getTracks().forEach(t => t.stop());
@@ -728,42 +735,61 @@ async function startMeetingShare() {{
     const vid = document.getElementById('previewVideo');
     vid.srcObject = displayStream;
     vid.style.display = 'block';
+    await vid.play().catch(() => {{}});
 
     const videoTrack = displayStream.getVideoTracks()[0];
     const label = videoTrack ? (videoTrack.label || 'Browser Screen Share') : 'Browser Screen Share';
+    const sessionId = 'web_' + Date.now();
 
     await fetch('/api/browser_cast/start', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ label, source: 'Web Studio (Meeting Share)' }})
+      body: JSON.stringify({{ label, source: 'Web Studio (Meeting Share)', session_id: sessionId }})
     }});
 
-    let mimeType = 'video/webm;codecs=vp8,opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {{
-      mimeType = 'video/webm';
-    }}
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext('2d');
+    let inFlight = false;
 
-    mediaRecorder = new MediaRecorder(displayStream, {{
-      mimeType,
-      videoBitsPerSecond: 1800000
-    }});
+    const blob = new Blob(['setInterval(() => postMessage(1), 45);'], {{ type: 'application/javascript' }});
+    const worker = new Worker(URL.createObjectURL(blob));
+    window.__meetingWorker = worker;
 
-    mediaRecorder.ondataavailable = (e) => {{
-      if (e.data && e.data.size > 0) {{
-        sendChain = sendChain.then(() =>
-          fetch('/api/browser_cast/chunk', {{
-            method: 'POST',
-            body: e.data
-          }}).catch(() => {{}})
-        );
-      }}
+    worker.onmessage = () => {{
+      if (inFlight || !displayStream || vid.readyState < 2) return;
+      inFlight = true;
+      const vw = vid.videoWidth || 1280;
+      const vh = vid.videoHeight || 720;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 1280, 720);
+      const scale = Math.min(1280 / vw, 720 / vh);
+      const dw = Math.round(vw * scale);
+      const dh = Math.round(vh * scale);
+      const dx = Math.round((1280 - dw) / 2);
+      const dy = Math.round((720 - dh) / 2);
+      ctx.drawImage(vid, dx, dy, dw, dh);
+      canvas.toBlob((jpgBlob) => {{
+        if (!jpgBlob) {{ inFlight = false; return; }}
+        fetch('/api/browser_cast/frame', {{
+          method: 'POST',
+          headers: {{ 'X-Session-Id': sessionId }},
+          body: jpgBlob
+        }})
+          .then(r => r.json())
+          .then(res => {{
+            if (res && res.stop) stopLocalMediaCapture();
+          }})
+          .catch(() => {{}})
+          .finally(() => {{ inFlight = false; }});
+      }}, 'image/jpeg', 0.82);
     }};
 
     videoTrack.onended = () => {{
       stopCast();
     }};
 
-    mediaRecorder.start(200);
     setTimeout(refreshStatus, 500);
   }} catch (err) {{
     console.error('Meeting share cancelled:', err);
@@ -788,10 +814,16 @@ async function refreshStatus() {{
     document.getElementById('sourceTxt').textContent = d.active_source || 'System';
     document.getElementById('titleTxt').textContent = d.title;
     const tSpan = document.getElementById('timeTxt');
-    if (d.mode === 'YOUTUBE' || d.mode === 'FILE') {{
+    if (d.mode === 'YOUTUBE' || d.mode === 'FILE' || (d.mode === 'BROWSER' && (d.playback_sec > 0 || d.duration_sec > 0))) {{
       const m = Math.floor((d.playback_sec || 0) / 60);
       const s = String((d.playback_sec || 0) % 60).padStart(2, '0');
-      tSpan.textContent = `Playback Position: ${{m}}:${{s}}${{d.loop_video ? '  •  Loop Active' : ''}}`;
+      let durStr = '';
+      if (d.duration_sec > 0) {{
+        const dm = Math.floor(d.duration_sec / 60);
+        const ds = String(d.duration_sec % 60).padStart(2, '0');
+        durStr = ` / ${{dm}}:${{ds}}`;
+      }}
+      tSpan.textContent = `Playback Position: ${{m}}:${{s}}${{durStr}}${{d.loop_video ? '  •  Loop Active' : ''}}`;
     }} else if (d.mode === 'GALLERY' && d.gallery) {{
       tSpan.textContent = `Slide ${{d.gallery.index + 1}} of ${{d.gallery.count}}  •  Timer: ${{d.gallery.interval}}s${{d.gallery.shuffle ? '  •  Shuffle' : ''}}`;
     }} else {{
@@ -821,6 +853,50 @@ window.addEventListener('DOMContentLoaded', () => {{
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw_body = self.rfile.read(length) if length > 0 else b""
+
+        if self.path == "/api/browser_cast/frame":
+            ctype = self.headers.get("Content-Type", "")
+            jpeg_bytes = b""
+            meta = {}
+            if "application/json" in ctype:
+                try:
+                    j = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                    b64_str = j.get("frame", "")
+                    if "," in b64_str:
+                        b64_str = b64_str.split(",", 1)[1]
+                    if b64_str:
+                        jpeg_bytes = base64.b64decode(b64_str)
+                    meta = {
+                        "session_id": j.get("session_id", ""),
+                        "time_sec": j.get("time_sec"),
+                        "duration_sec": j.get("duration_sec"),
+                        "paused": j.get("paused"),
+                        "title": j.get("title", ""),
+                    }
+                except Exception:
+                    pass
+            else:
+                jpeg_bytes = raw_body
+                raw_title = self.headers.get("X-Video-Title", "")
+                meta = {
+                    "session_id": self.headers.get("X-Session-Id", ""),
+                    "time_sec": self.headers.get("X-Video-Time"),
+                    "duration_sec": self.headers.get("X-Video-Duration"),
+                    "paused": (
+                        self.headers.get("X-Video-Paused") == "1"
+                        if self.headers.get("X-Video-Paused") is not None
+                        else None
+                    ),
+                    "title": urllib.parse.unquote(raw_title) if raw_title else "",
+                }
+
+            res = self.engine.push_browser_frame(jpeg_bytes, meta)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
 
         if self.path == "/api/browser_cast/chunk":
             ok = self.engine.push_browser_chunk(raw_body)
@@ -945,9 +1021,13 @@ window.addEventListener('DOMContentLoaded', () => {{
                 WebRemoteHandler.ui_sync_callback()
 
         elif self.path == "/api/browser_cast/start":
-            label = data.get("label", "Live Browser Video / Tab Share")
-            source = data.get("source", "Chrome Extension / Web Studio")
-            self.engine.start_browser_cast(label=label, source=source)
+            label = data.get("label", "Live Chrome Video Stream")
+            source = data.get("source", "Chrome Extension")
+            session_id = data.get("session_id", "")
+            url = data.get("url", "")
+            if "loop" in data and data["loop"] is not None:
+                self.engine.loop_video = bool(data["loop"])
+            self.engine.start_browser_cast(label=label, source=source, session_id=session_id, url=url)
             if WebRemoteHandler.ui_sync_callback:
                 WebRemoteHandler.ui_sync_callback()
 

@@ -2,9 +2,12 @@
   "manifest_version": 3,
   "name": "NVR Cast Hub — Live Video Sync & Remote (v0.1.0-beta)",
   "version": "0.1.0",
-  "description": "Cast browser videos with real-time seek & pause sync, control active NVR streams, manage Photo Gallery slideshows, and mirror PC monitors.",
+  "description": "Cast live browser video players directly to NVR with real-time seek, pause, PiP & background tab continuity, Photo Gallery & PC Monitor controls.",
   "permissions": [
     "activeTab",
+    "tabs",
+    "tabCapture",
+    "offscreen",
     "scripting",
     "storage"
   ],

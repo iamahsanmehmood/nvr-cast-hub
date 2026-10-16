@@ -1,8 +1,10 @@
 import os
+import io
 import sys
 import time
 import json
 import queue
+import base64
 import random
 import ctypes
 from ctypes import wintypes
@@ -165,6 +167,12 @@ class NVRCastEngine:
         self.running = False
         self.screen_stop_event = threading.Event()
         self.browser_chunk_queue = None
+        self.browser_session_id = ""
+        self._browser_latest_frame = None
+        self._browser_frame_lock = threading.Lock()
+        self._browser_pending_cmds = []
+        self.browser_duration_sec = 0
+        self._browser_out_size = (1280, 720)
 
         # Active Session State (shared across Desktop GUI, Web Studio & Chrome Extension)
         self.current_mode = "STOPPED"
@@ -176,6 +184,8 @@ class NVRCastEngine:
         self.loop_video = False
         self.stream_started_at = 0.0
         self.seek_offset_sec = 0
+        self._yt_cache = {}
+        self._cast_gen = 0
 
         # Gallery Slideshow State
         self.gallery_folder = ""
@@ -230,6 +240,8 @@ class NVRCastEngine:
         threading.Thread(target=_drain, daemon=True).start()
 
     def get_current_playback_sec(self) -> int:
+        if self.current_mode == "BROWSER":
+            return int(self.seek_offset_sec)
         if self.current_mode not in ("YOUTUBE", "FILE"):
             return 0
         if self.is_paused or self.stream_started_at <= 0:
@@ -247,6 +259,8 @@ class NVRCastEngine:
             "current_url": self.current_url,
             "current_filepath": self.current_filepath,
             "playback_sec": self.get_current_playback_sec(),
+            "duration_sec": int(self.browser_duration_sec),
+            "browser_session_id": self.browser_session_id,
             "gallery": {
                 "folder": self.gallery_folder,
                 "count": len(self.gallery_images),
@@ -688,9 +702,21 @@ paths:
 
     def toggle_pause(self, force_state: bool = None, source: str = None) -> bool:
         """Pauses or resumes the active stream across all modes without dropping the NVR RTSP channel."""
+        # Ignore legacy automatic background tab pause events
+        if source and "Video Pause" in source:
+            return self.is_paused
+
         target_pause = (not self.is_paused) if force_state is None else bool(force_state)
         if self.current_mode in ("STANDBY", "STOPPED"):
             return False
+
+        if self.current_mode == "BROWSER":
+            self.is_paused = target_pause
+            with self._browser_frame_lock:
+                self._browser_pending_cmds.append({"event": "pause" if target_pause else "play"})
+            state_txt = "PAUSED" if self.is_paused else "RESUMED"
+            self.log(f"Live Chrome Video {state_txt} (by {source or 'User'}).")
+            return self.is_paused
 
         if self.current_mode in ("GALLERY", "SCREEN"):
             self.is_paused = target_pause
@@ -744,7 +770,20 @@ paths:
         return self.is_paused
 
     def seek_stream(self, target_sec: int = None, delta_sec: int = None, source: str = None):
-        """Seeks an active YouTube/Web or Local Video stream to a specific timestamp or relative +/- seconds."""
+        """Seeks an active Browser Video, YouTube/Web, or Local Video stream."""
+        # Ignore legacy automatic background tab seek events when in BROWSER mode
+        if self.current_mode == "BROWSER":
+            if source and "Video Seek" in source:
+                return
+            with self._browser_frame_lock:
+                self._browser_pending_cmds.append({
+                    "event": "seek",
+                    "target_sec": target_sec,
+                    "delta_sec": delta_sec,
+                })
+            self.log(f"Live Chrome Video seek requested (delta={delta_sec}, target={target_sec}, by {source or 'User'}).")
+            return
+
         if self.current_mode == "GALLERY" and delta_sec is not None:
             self.step_gallery_slide(1 if delta_sec >= 0 else -1)
             return
@@ -784,9 +823,13 @@ paths:
         if loop is not None:
             self.loop_video = bool(loop)
 
+        self._cast_gen += 1
+        my_gen = self._cast_gen
+
         def _worker():
-            self.log(f"[{source}] Resolving video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
-            self.status_cb("LOADING", f"Loading: {query_or_url[:48]}...")
+            self.log(f"[{source}] Starting video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
+            self.current_url = query_or_url
+            self.active_source = source
 
             lower_q = query_or_url.lower()
             is_direct_media = any(
@@ -794,14 +837,31 @@ paths:
                 for ext in (".m3u8", ".mp4", ".ts", ".mkv", ".webm", ".mpd")
             ) or lower_q.startswith("rtsp://") or lower_q.startswith("rtmp://")
 
-            if is_direct_media:
+            cached = self._yt_cache.get(query_or_url)
+            if cached and (time.time() - cached["ts"] < 1800):
+                title = cached["title"]
+                is_live = cached["is_live"]
+                video_url = cached["video_url"]
+                audio_url = cached["audio_url"]
+                is_hls = cached["is_hls"]
+                self.log(f"Using cached stream URLs for instant seek/play: '{title}'")
+            elif is_direct_media:
                 title = query_or_url.split("/")[-1].split("?")[0] or "Direct Media Stream"
                 is_live = ".m3u8" in lower_q or lower_q.startswith("rtsp://")
                 video_url = query_or_url
                 audio_url = None
+                is_hls = ".m3u8" in lower_q
             else:
+                self.status_cb("LOADING", f"Loading: {query_or_url[:48]}...")
+                # Prioritize m3u8_native H.264 (avc1) + m3u8 audio on YouTube to avoid SABR/VISIONOS HTTPS range hangs
                 ydl_opts = {
-                    "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+                    "format": (
+                        "bestvideo[height<=720][protocol^=m3u8][vcodec^=avc1]+bestaudio[protocol^=m3u8]/"
+                        "bestvideo[height<=1080][protocol^=m3u8][vcodec^=avc1]+bestaudio[protocol^=m3u8]/"
+                        "bestvideo[height<=720][protocol^=m3u8]+bestaudio[protocol^=m3u8]/"
+                        "best[height<=720][protocol^=m3u8]/"
+                        "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+                    ),
                     "noplaylist": True,
                     "quiet": True,
                     "no_warnings": True,
@@ -822,27 +882,46 @@ paths:
                         if req_formats and len(req_formats) >= 2:
                             video_url = req_formats[0]["url"]
                             audio_url = req_formats[1]["url"]
+                            proto = req_formats[0].get("protocol", "")
                         else:
                             video_url = info["url"]
                             audio_url = None
+                            proto = info.get("protocol", "")
+
+                        is_hls = ("m3u8" in proto) or (".m3u8" in video_url) or ("hls_playlist" in video_url)
+                        self._yt_cache[query_or_url] = {
+                            "title": title,
+                            "is_live": is_live,
+                            "video_url": video_url,
+                            "audio_url": audio_url,
+                            "is_hls": is_hls,
+                            "ts": time.time(),
+                        }
                 except Exception as e:
                     self.log(f"ERROR resolving video link: {e}")
                     self.status_cb(self.current_mode, self.current_title)
                     return
 
-            self.log(f"Matched Stream: '{title}' ({'LIVE' if is_live else 'VOD'})")
+            if my_gen != self._cast_gen:
+                return
 
-            reconnect_args = [
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-            ]
+            self.log(f"Matched Stream: '{title}' ({'LIVE' if is_live else 'VOD'}, {'HLS' if is_hls else 'HTTP'})")
+
             seek_args = ["-ss", str(start_sec)] if (start_sec > 0 and not is_live) else []
+            reconnect_args = (
+                []
+                if is_hls
+                else [
+                    "-reconnect", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "5",
+                ]
+            )
 
             if audio_url:
                 input_args = (
                     ["-re"] + seek_args + reconnect_args + ["-i", video_url]
-                    + seek_args + reconnect_args + ["-i", audio_url]
+                    + ["-re"] + seek_args + reconnect_args + ["-i", audio_url]
                 )
                 audio_map = "1:a:0?"
             else:
@@ -859,6 +938,8 @@ paths:
             )
 
             with self.stream_lock:
+                if my_gen != self._cast_gen:
+                    return
                 self._stop_ffmpeg_locked()
                 self.current_mode = "YOUTUBE"
                 self.current_title = f"{'[LOOP] ' if self.loop_video else ''}{title}"
@@ -886,7 +967,7 @@ paths:
 
             proc_ref.wait()
             with self.stream_lock:
-                if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused:
+                if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused and my_gen == self._cast_gen:
                     if self.loop_video:
                         self.log(f"Looping YouTube/Web video '{title}' from beginning...")
                         threading.Thread(
@@ -1469,85 +1550,213 @@ paths:
 
     def start_browser_cast(
         self,
-        label: str = "Web Meeting Screen/Tab Share",
-        source: str = "Web Studio / Chrome Extension",
+        label: str = "Live Chrome Video Stream",
+        source: str = "Chrome Extension",
+        session_id: str = "",
+        url: str = "",
     ):
         """
-        Receives live WebM chunks from either:
-          - Chrome Extension HTML5 <video>.captureStream() (PiP-style live player mirroring)
-          - Web Cast Studio getDisplayMedia() (Meeting-style Tab / Window / Screen share)
-        and pipes them to the NVR RTSP server.
+        Streams the live HTML5 <video> player or tab/window capture directly from Chrome to the NVR
+        using a continuous 25fps rawvideo RGB24 wall-clock frame repeater + WASAPI PC Audio Loopback.
+        Never drops on pause, seek, ABR resolution change, or tab switching!
         """
-        with self.stream_lock:
-            self._stop_ffmpeg_locked()
-            self.browser_chunk_queue = queue.Queue(maxsize=300)
-            q_ref = self.browser_chunk_queue
-            self.current_mode = "BROWSER"
-            self.current_title = label
-            self.active_source = source
-            self.is_paused = False
-            self.status_cb(self.current_mode, self.current_title)
+        out_w, out_h = [int(x) for x in self.main_res.split("x")]
+        self._browser_out_size = (out_w, out_h)
 
-            cmd = (
-                [
-                    self.ffmpeg_exe,
-                    "-hide_banner",
-                    "-loglevel", "warning",
-                    "-fflags", "+genpts+igndts+nobuffer",
-                    "-i", "pipe:0",
-                    "-f", "lavfi",
-                    "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                ]
-                + self._build_dual_output_args("0:a:0?")
-            )
-
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            self.ffmpeg_proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                startupinfo=startupinfo,
-            )
-            proc_ref = self.ffmpeg_proc
-            self._attach_ffmpeg_log_drainer(proc_ref, "BrowserCast")
-
-        self.log(f"[{source}] Started Live Browser Cast: '{label}'")
-
-        def _feeder():
+        # Build an initial dark studio connecting frame so FFmpeg starts streaming immediately
+        if Image is not None:
+            init_im = Image.new("RGB", (out_w, out_h), (15, 23, 42))
             try:
-                while proc_ref.poll() is None:
-                    chunk = q_ref.get()
-                    if chunk is None:
-                        break
-                    proc_ref.stdin.write(chunk)
-                    proc_ref.stdin.flush()
+                draw = ImageDraw.Draw(init_im)
+                font = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 26)
+                draw.text((out_w // 2 - 220, out_h // 2 - 20), f"Connecting Live Chrome Stream: {label[:36]}...", fill=(248, 250, 252), font=font)
+            except Exception:
+                pass
+            init_bytes = init_im.tobytes()
+        else:
+            init_bytes = b"\x0f\x17\x2a" * (out_w * out_h)
+
+        with self._browser_frame_lock:
+            self._browser_latest_frame = init_bytes
+            self._browser_pending_cmds.clear()
+
+        self._cast_gen += 1
+        my_gen = self._cast_gen
+        resolved_session = session_id or f"cast_{int(time.time() * 1000)}"
+        self.browser_session_id = resolved_session
+        self.current_mode = "BROWSER"
+        self.current_title = label
+        if url:
+            self.current_url = url
+        self.active_source = source
+        self.is_paused = False
+        self.seek_offset_sec = 0
+        self.browser_duration_sec = 0
+        self.stream_started_at = time.time()
+        self.status_cb(self.current_mode, self.current_title)
+
+        def _worker():
+            with self.stream_lock:
+                if my_gen != self._cast_gen:
+                    return
+                self._stop_ffmpeg_locked()
+                self.screen_stop_event.clear()
+                stop_evt = self.screen_stop_event
+
+                self.browser_session_id = resolved_session
+                self.current_mode = "BROWSER"
+                self.current_title = label
+                if url:
+                    self.current_url = url
+                self.active_source = source
+                self.status_cb(self.current_mode, self.current_title)
+
+                audio_info = self._start_wasapi_audio_tcp_feeder(stop_evt)
+                if audio_info:
+                    aport, arate, achan = audio_info
+                    audio_input_args = [
+                        "-thread_queue_size", "512",
+                        "-f", "s16le",
+                        "-ar", str(arate),
+                        "-ac", str(achan),
+                        "-i", f"tcp://127.0.0.1:{aport}",
+                    ]
+                else:
+                    audio_input_args = [
+                        "-f", "lavfi",
+                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                    ]
+
+                cmd = (
+                    [
+                        self.ffmpeg_exe,
+                        "-hide_banner",
+                        "-loglevel", "warning",
+                        "-thread_queue_size", "256",
+                        "-f", "rawvideo",
+                        "-pix_fmt", "rgb24",
+                        "-s", f"{out_w}x{out_h}",
+                        "-r", str(self.fps),
+                        "-i", "pipe:0",
+                    ]
+                    + audio_input_args
+                    + self._build_dual_output_args("1:a:0")
+                )
+
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                self.ffmpeg_proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=out_w * out_h * 3 * 2,
+                    startupinfo=startupinfo,
+                )
+                proc_ref = self.ffmpeg_proc
+                self._attach_ffmpeg_log_drainer(proc_ref, "BrowserCast")
+
+            self.log(f"[{source}] Started Live Chrome Video Stream: '{label}' (session={self.browser_session_id})")
+
+            frame_interval = 1.0 / float(self.fps)
+            next_frame_t = time.perf_counter()
+
+            try:
+                while not stop_evt.is_set() and proc_ref.poll() is None:
+                    with self._browser_frame_lock:
+                        frame_bytes = self._browser_latest_frame
+                    if frame_bytes:
+                        proc_ref.stdin.write(frame_bytes)
+
+                    next_frame_t += frame_interval
+                    sleep_s = next_frame_t - time.perf_counter()
+                    if sleep_s > 0:
+                        time.sleep(sleep_s)
+                    elif sleep_s < -0.5:
+                        next_frame_t = time.perf_counter()
             except Exception as e:
-                self.log(f"Browser cast stream ended: {e}")
+                if not stop_evt.is_set():
+                    self.log(f"Browser live stream ended: {e}")
             finally:
+                stop_evt.set()
                 try:
                     if proc_ref.stdin:
                         proc_ref.stdin.close()
                 except Exception:
                     pass
-                proc_ref.wait()
                 with self.stream_lock:
-                    if self.ffmpeg_proc == proc_ref and self.running:
-                        self.log("Browser cast stopped. Returning to Standby feed...")
+                    if self.ffmpeg_proc == proc_ref and self.running and not stop_evt.is_set():
+                        self.log("Browser cast finished. Returning to Standby feed...")
                         threading.Thread(target=self.start_standby_stream, daemon=True).start()
 
-        threading.Thread(target=_feeder, daemon=True).start()
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def push_browser_frame(self, jpeg_bytes: bytes, meta: dict = None) -> dict:
+        """
+        Receives a live JPEG frame from Chrome's <video> player or getDisplayMedia canvas,
+        updates the 25fps rawvideo frame buffer, and returns any pending remote-control commands.
+        """
+        meta = meta or {}
+        req_session = meta.get("session_id", "")
+
+        if self.current_mode != "BROWSER":
+            return {"ok": False, "stop": True, "reason": "not_in_browser_mode"}
+
+        if req_session and self.browser_session_id and req_session != self.browser_session_id:
+            return {"ok": False, "stop": True, "reason": "session_superseded", "active_session_id": self.browser_session_id}
+
+        if "time_sec" in meta and meta["time_sec"] is not None:
+            try:
+                self.seek_offset_sec = int(float(meta["time_sec"]))
+            except Exception:
+                pass
+        if "duration_sec" in meta and meta["duration_sec"] is not None:
+            try:
+                self.browser_duration_sec = int(float(meta["duration_sec"]))
+            except Exception:
+                pass
+        if "paused" in meta and meta["paused"] is not None:
+            self.is_paused = bool(meta["paused"])
+        if meta.get("title"):
+            clean_t = str(meta["title"]).strip()
+            if clean_t:
+                prefix = "[PAUSED] " if self.is_paused else ("[LOOP] " if self.loop_video else "")
+                new_title = f"{prefix}{clean_t}"
+                if new_title != self.current_title:
+                    self.current_title = new_title
+                    self.status_cb(self.current_mode, self.current_title)
+
+        if jpeg_bytes and Image is not None:
+            try:
+                out_w, out_h = self._browser_out_size
+                with Image.open(io.BytesIO(jpeg_bytes)) as im:
+                    im_rgb = im.convert("RGB")
+                    if im_rgb.size != (out_w, out_h):
+                        im_rgb = im_rgb.resize((out_w, out_h), Image.Resampling.BILINEAR)
+                    raw_rgb = im_rgb.tobytes()
+                with self._browser_frame_lock:
+                    self._browser_latest_frame = raw_rgb
+            except Exception:
+                pass
+
+        cmd = None
+        with self._browser_frame_lock:
+            if self._browser_pending_cmds:
+                cmd = self._browser_pending_cmds.pop(0)
+
+        return {
+            "ok": True,
+            "session_id": self.browser_session_id,
+            "loop": self.loop_video,
+            "cmd": cmd,
+        }
 
     def push_browser_chunk(self, data: bytes) -> bool:
-        q = self.browser_chunk_queue
-        if q is None or self.current_mode != "BROWSER":
-            return False
-        try:
-            q.put_nowait(data)
-            return True
-        except queue.Full:
-            return False
+        """Legacy endpoint compatibility: if JPEG bytes are posted to /api/browser_cast/chunk, decode as frame."""
+        if data and data[:2] == b"\xff\xd8":
+            res = self.push_browser_frame(data)
+            return bool(res.get("ok"))
+        return self.current_mode == "BROWSER"
 
     def shutdown(self):
         self.running = False
