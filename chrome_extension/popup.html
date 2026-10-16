@@ -6,9 +6,9 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    width: 350px;
+    width: 365px;
     margin: 0;
-    padding: 14px;
+    padding: 13px;
     background: #0f172a;
     color: #f8fafc;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -17,15 +17,15 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   h3 {
     margin: 0;
     color: #38bdf8;
-    font-size: 15.5px;
+    font-size: 15px;
   }
   .badge {
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     padding: 3px 8px;
     border-radius: 99px;
@@ -33,55 +33,66 @@
     color: #0f172a;
   }
   p.sub {
-    margin: 0 0 10px 0;
+    margin: 0 0 8px 0;
     color: #94a3b8;
-    font-size: 12px;
+    font-size: 11.5px;
   }
   .status {
     background: #1e293b;
-    padding: 10px;
+    padding: 9px 10px;
     border-radius: 8px;
     border-left: 3px solid #4ade80;
-    font-size: 12px;
-    margin-bottom: 10px;
+    font-size: 11.5px;
+    margin-bottom: 8px;
     line-height: 1.45;
+  }
+  .ctrl-bar {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr 1fr;
+    gap: 5px;
+    margin-bottom: 9px;
   }
   .btn {
     width: 100%;
-    padding: 10px 12px;
+    padding: 9px 11px;
     border: none;
     border-radius: 7px;
     font-weight: 700;
-    font-size: 12.5px;
+    font-size: 12px;
     cursor: pointer;
-    margin-bottom: 7px;
+    margin-bottom: 6px;
     color: #fff;
     transition: opacity 0.15s;
   }
   .btn:hover { opacity: 0.92; }
   .btn-yt { background: #ef4444; }
+  .btn-pip { background: #e11d48; }
   .btn-meet { background: #8b5cf6; }
   .btn-screen { background: #2563eb; }
+  .btn-gal { background: #10b981; color: #052e16; }
+  .btn-warn { background: #f59e0b; color: #0f172a; }
   .btn-stop { background: #475569; margin-bottom: 0; }
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .grid-2 .btn { margin-bottom: 0; padding: 8px 6px; font-size: 11.5px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
   .grid-3 .btn { margin-bottom: 0; padding: 8px 4px; font-size: 11px; }
-  .row { display: flex; gap: 6px; margin-bottom: 7px; }
-  input {
+  .row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+  input[type=text] {
     flex: 1;
-    padding: 7px 9px;
+    padding: 6px 8px;
     border-radius: 6px;
     border: 1px solid #334155;
     background: #1e293b;
     color: #fff;
-    font-size: 12px;
+    font-size: 11.5px;
   }
   .small-btn {
-    padding: 7px 10px;
+    padding: 6px 9px;
     border: none;
     border-radius: 6px;
     background: #334155;
     color: #fff;
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
   }
@@ -93,30 +104,54 @@
     <h3>📺 NVR Cast Hub v0.1.0-beta</h3>
     <span class="badge" id="connBadge">CHECKING</span>
   </div>
-  <p class="sub">Universal NVR Caster (Hikvision / Dahua / ONVIF)</p>
+  <p class="sub">Live Video Player Sync, Multi-Monitor & Gallery Remote</p>
 
   <div class="status" id="statusBox">
-    <strong>Mode:</strong> <span id="modeTxt">Checking...</span><br>
-    <strong>Playing:</strong> <span id="titleTxt">Connecting to Hub...</span>
+    <strong>Active Mode:</strong> <span id="modeTxt" style="color:#4ade80;font-weight:700;">Checking...</span>
+    &nbsp;|&nbsp; <strong>By:</strong> <span id="sourceTxt" style="color:#38bdf8;">-</span><br>
+    <strong>Now Playing:</strong> <span id="titleTxt">Connecting to Hub...</span>
+    <span id="posTxt" style="color:#fde047;display:block;font-size:11px;margin-top:2px;"></span>
   </div>
 
-  <button class="btn btn-yt" id="btnCastCurrentTab">▶ Cast Current Tab's Video URL to NVR</button>
-  <button class="btn btn-meet" id="btnShareMeeting">💻 Share Tab / Window + Audio (Meeting Mode)</button>
+  <!-- Active Stream Controls (Pause/Resume/Seek/Stop) -->
+  <div class="ctrl-bar">
+    <button class="small-btn btn-warn" id="btnTogglePause">⏯ Pause/Play</button>
+    <button class="small-btn" id="btnSeekBack">⏪ -10s</button>
+    <button class="small-btn" id="btnSeekFwd">⏩ +10s</button>
+    <button class="small-btn" style="background:#dc2626;" id="btnStop">⏹ Stop</button>
+  </div>
 
+  <!-- Live Browser Video Player Sync (YouTube & Any Web Player) -->
+  <button class="btn btn-yt" id="btnCastCurrentTab">▶ Cast Tab Video (with Seek/Pause Sync)</button>
+  <div class="grid-2">
+    <button class="btn btn-pip" id="btnPipMirror">📺 PiP Live Player Stream</button>
+    <button class="btn btn-meet" id="btnShareMeeting">💻 Share Tab / Window</button>
+  </div>
+
+  <!-- Multi-Monitor Selection -->
   <div class="grid-3">
     <button class="btn btn-screen" id="btnMon1">🖥️ Monitor 1</button>
     <button class="btn btn-screen" id="btnMon2">🖥️ Monitor 2</button>
     <button class="btn btn-screen" id="btnMonAll">🖥️ All Screens</button>
   </div>
 
+  <!-- Custom URL + Loop Checkbox -->
   <div class="row">
-    <input type="text" id="customQuery" placeholder="Paste YouTube URL or search phrase...">
+    <input type="text" id="customQuery" placeholder="YouTube URL or search...">
+    <label style="font-size:11px;display:flex;align-items:center;gap:3px;cursor:pointer;color:#fde047;">
+      <input type="checkbox" id="chkLoop"> 🔁 Loop
+    </label>
     <button class="small-btn" id="btnCastCustom">▶ Cast</button>
   </div>
 
-  <button class="btn btn-stop" id="btnStop">⏹ Stop / Return to Standby</button>
+  <!-- Photo Gallery Slideshow Quick Controls -->
+  <div class="row">
+    <button class="small-btn btn-gal" style="flex:1;" id="btnOpenStudio">🖼️ Open Gallery & Loop Studio (:8090)</button>
+    <button class="small-btn" id="btnGalPrev" title="Previous Gallery Slide">⏮ Slide</button>
+    <button class="small-btn" id="btnGalNext" title="Next Gallery Slide">⏭ Slide</button>
+  </div>
 
-  <div class="row" style="margin-top: 8px; margin-bottom: 0;">
+  <div class="row" style="margin-top: 4px; margin-bottom: 0;">
     <input type="text" id="serverUrl" value="http://127.0.0.1:8090" placeholder="http://127.0.0.1:8090">
     <button class="small-btn" id="btnSaveUrl">Save</button>
   </div>

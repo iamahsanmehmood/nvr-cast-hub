@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "NVR Cast Hub — Universal NVR & CCTV Caster (v0.1.0-beta)",
+  "name": "NVR Cast Hub — Live Video Player Sync & Remote (v0.1.0-beta)",
   "version": "0.1.0",
-  "description": "Cast YouTube videos, web streams, Meeting-style browser tabs, or Multi-Monitor PC desktops directly to Hikvision, Dahua, Uniview, Reolink & ONVIF NVRs.",
+  "description": "PiP-style Live Video Caster with forward/backward seek & pause sync, active session control, Gallery/Loop remote, and Multi-Monitor NVR casting.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -17,12 +17,12 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Cast to NVR (v0.1.0-beta)"
+    "default_title": "NVR Cast Hub — Live Sync & Remote (v0.1.0-beta)"
   },
   "content_scripts": [
     {
       "matches": [
-        "*://*.youtube.com/*"
+        "<all_urls>"
       ],
       "js": [
         "content_youtube.js"

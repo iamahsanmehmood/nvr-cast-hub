@@ -102,17 +102,21 @@ flowchart LR
 
 ### 1. 🖥️ Native Windows Desktop Application (`NVR_Cast_Hub.exe` & `desktop_app/`)
 - **1-Click RTSP URLs:** Automatically detects your PC's LAN IP and displays copy-ready **Main Stream (`/main`)**, **Sub Stream (`/sub`)**, and **Web Cast Studio (`http://localhost:8090`)** addresses.
+- **Unified Active Session Bar (`Pause / Resume / Seek / Takeover`):** Displays which interface (`Desktop App`, `Chrome Extension`, `Web Studio`) is currently streaming to the NVR, with instant **`⏯ Pause / Resume`**, **`⏪ -10s`**, **`⏩ +10s`**, and **`⏹ Stop / Standby`** controls.
+- **🖼️ Photo Gallery / Folder Slideshow Gadget:** Pick any picture folder (or select multiple photos), set a **Slide Timer** in seconds (`5s`, `10s`, `30s`, etc.), toggle **`🔀 Shuffle`**, and step **`⏮ Prev` / `⏭ Next`** to turn your NVR monitor into a live digital signage or photo frame with background audio.
+- **🔁 Infinite Video Loop Mode:** Toggle **`🔁 Loop Video`** to continuously loop any local video file (`.mp4`, `.mkv`, `.avi`) or YouTube/web stream on your NVR monitor.
 - **Multi-Monitor Selection:** Dynamically detects all displays (e.g. `Monitor 1: 1920x1080 Landscape` + `Monitor 2: 1080x1920 Vertical/Portrait`). Choose **Monitor 1 Only**, **Monitor 2 Only**, **All Monitors Combined**, or any custom subset.
 - **WASAPI PC Speaker Audio Loopback:** Streams whatever audio is playing on your PC speakers directly to your NVR monitor without needing a microphone or virtual audio cable.
-- **Live Flexibility & Encoding Controls:** Adjust Resolution (`1280x720`, `1920x1080`, `854x480`), Aspect Fit (`Fit/Letterbox`, `Stretch`, `Center Crop`), Frame Rate (`15`, `25`, `30` FPS), Bitrate (`1000k`–`4000k`), and Audio Codec (`G.711u`, `G.711a`, `AAC`, `Mute`).
 
 ### 2. 🌐 Browser Web Cast Studio & Mobile Remote (`http://localhost:8090` & `web_studio/`)
-- **Google-Meet-Style Screen / Window / Tab Sharing:** Click **`📹 Share Browser Tab / Window / Screen`** in your browser to share a single Chrome tab (with tab audio), a specific app window, or a monitor.
-- **Phone / Tablet Wi-Fi Remote:** Open `http://<YOUR_PC_IP>:8090` on your phone to paste YouTube links, switch monitors, or stop casting from across the room.
+- **Full Browser Control Center:** Manage Active Streams (`Pause/Resume`, `Seek -30s/-10s/+10s/+30s`), launch **Photo Gallery Slideshows**, toggle **Video Loop**, or switch **Multi-Monitor** targets from any browser.
+- **Google-Meet-Style Screen / Window / Tab Sharing:** Click **`📹 Share Browser Tab / Window / Screen`** to share a single Chrome tab (with tab audio), a specific app window, or a monitor.
+- **Phone / Tablet Wi-Fi Remote:** Open `http://<YOUR_PC_IP>:8090` on your phone to control the NVR monitor from across the room.
 
 ### 3. 🧩 Chrome / Edge Browser Extension (`chrome_extension/`)
-- **In-Player YouTube Cast Button:** Adds a native **`📺 Cast to NVR`** button right inside the YouTube video player bar next to Fullscreen—automatically transferring the video and your current playback timestamp to the NVR!
-- **Toolbar Quick-Cast Popup:** Cast any tab's video URL, start Meeting Share, or toggle Monitor 1 / Monitor 2 / All Screens with one click.
+- **Real-Time Video Player Sync (Seek Forward/Backward & Pause Sync):** Click **`📺 Cast to NVR (Sync)`** inside the YouTube player bar (or in the extension popup on any web video player). Whenever you **scrub forward/backward on the timeline, pause, or resume** in your browser player, the NVR stream automatically syncs to your exact playback position!
+- **PiP-Style Live `<video>` Stream Capture:** Supports direct HTML5 `video.captureStream()` streaming for custom web video players.
+- **Active Session Awareness:** Automatically fetches `/api/status` so you can see what is currently running on the NVR (e.g. Desktop Mirror or Gallery Slideshow), pause it, or switch to your browser video with one click.
 
 ---
 

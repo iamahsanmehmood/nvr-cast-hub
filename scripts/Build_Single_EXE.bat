@@ -8,7 +8,7 @@ echo   BUILDING SINGLE-FILE EXECUTABLE: NVR_Cast_Hub.exe (v0.1.0-beta)
 echo ============================================================================
 echo.
 
-python -m pip install --upgrade pyinstaller yt-dlp mss pyaudiowpatch
+python -m pip install --upgrade pyinstaller yt-dlp mss pyaudiowpatch Pillow
 
 python -m PyInstaller --noconfirm --clean --onefile --noconsole ^
     --name "NVR_Cast_Hub" ^
@@ -22,6 +22,11 @@ python -m PyInstaller --noconfirm --clean --onefile --noconsole ^
     --hidden-import "yt_dlp" ^
     --hidden-import "mss" ^
     --hidden-import "pyaudiowpatch" ^
+    --hidden-import "PIL" ^
+    --hidden-import "PIL.Image" ^
+    --hidden-import "PIL.ImageDraw" ^
+    --hidden-import "PIL.ImageFont" ^
+    --hidden-import "PIL.ImageOps" ^
     nvr_cast_app.py
 
 if exist "dist\NVR_Cast_Hub.exe" (

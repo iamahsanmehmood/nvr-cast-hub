@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import queue
+import random
 import ctypes
 from ctypes import wintypes
 import socket
@@ -24,6 +25,11 @@ try:
 except ImportError:
     pyaudio = None
 
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+except ImportError:
+    Image = None
+
 APP_VERSION = "0.1.0-beta"
 
 # Support both running from source and PyInstaller --onefile executable
@@ -35,6 +41,9 @@ BIN_DIR = os.path.join(APP_DIR, "bin")
 EXT_DIR = os.path.join(APP_DIR, "chrome_extension")
 MEDIAMTX_EXE = os.path.join(BIN_DIR, "mediamtx.exe")
 MEDIAMTX_YML = os.path.join(BIN_DIR, "mediamtx.yml")
+
+SUPPORTED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif")
+SUPPORTED_VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".ts", ".webm", ".m4v")
 
 
 def attach_thread_to_default_desktop() -> bool:
@@ -130,8 +139,14 @@ def draw_cursor_on_bgra(buf: bytearray, width: int, height: int, left: int, top:
 class NVRCastEngine:
     """
     Universal NVR RTSP Casting Engine (v0.1.0-beta).
-    Compatible with Hikvision, Dahua, Uniview (UNV), Reolink, Amcrest, Lorex,
-    Synology Surveillance Station, Blue Iris, and any ONVIF/RTSP NVR.
+    Supports:
+      - Direct YouTube / Web Video Streaming with Real-Time Seek, Pause/Resume & Loop
+      - Chrome Extension PiP-Style Live Video Player Mirroring (video.captureStream() + seek sync)
+      - Multi-Monitor PC Desktop Mirroring (Monitor 1, Monitor 2, All Combined) + WASAPI Speaker Audio
+      - Meeting-Style Browser Tab / Window / Screen Share
+      - Photo Gallery / Folder Slideshow with Timer, Shuffle & Background Audio
+      - Video Loop Mode (Infinite Loop for local videos or web streams)
+      - Unified Active Session Tracking across Desktop App, Web Studio & Chrome Extension
     """
 
     def __init__(self, log_callback=None, status_callback=None):
@@ -150,9 +165,24 @@ class NVRCastEngine:
         self.screen_stop_event = threading.Event()
         self.browser_chunk_queue = None
 
+        # Active Session State (shared across Desktop GUI, Web Studio & Chrome Extension)
         self.current_mode = "STOPPED"
         self.current_title = "Idle"
         self.current_url = ""
+        self.current_filepath = ""
+        self.active_source = "System"    # e.g., "Desktop App", "Chrome Extension", "Web Studio"
+        self.is_paused = False
+        self.loop_video = False
+        self.stream_started_at = 0.0
+        self.seek_offset_sec = 0
+
+        # Gallery Slideshow State
+        self.gallery_folder = ""
+        self.gallery_images = []
+        self.gallery_index = 0
+        self.gallery_interval = 5        # seconds per slide
+        self.gallery_shuffle = False
+        self.gallery_force_step = 0      # +1 for next slide, -1 for prev slide
 
         # Flexible encoding & display settings
         self.main_res = "1280x720"       # 1280x720, 1920x1080, 854x480
@@ -173,6 +203,48 @@ class NVRCastEngine:
         timestamp = time.strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] {msg}")
 
+    def get_current_playback_sec(self) -> int:
+        if self.current_mode not in ("YOUTUBE", "FILE"):
+            return 0
+        if self.is_paused or self.stream_started_at <= 0:
+            return int(self.seek_offset_sec)
+        return int(self.seek_offset_sec + max(0.0, time.time() - self.stream_started_at))
+
+    def get_status_dict(self) -> dict:
+        return {
+            "version": APP_VERSION,
+            "mode": self.current_mode,
+            "title": self.current_title,
+            "active_source": self.active_source,
+            "is_paused": self.is_paused,
+            "loop_video": self.loop_video,
+            "current_url": self.current_url,
+            "current_filepath": self.current_filepath,
+            "playback_sec": self.get_current_playback_sec(),
+            "gallery": {
+                "folder": self.gallery_folder,
+                "count": len(self.gallery_images),
+                "index": self.gallery_index,
+                "interval": self.gallery_interval,
+                "shuffle": self.gallery_shuffle,
+            },
+            "rtsp_main": f"rtsp://{self.lan_ip}:{self.rtsp_port}/main",
+            "rtsp_sub": f"rtsp://{self.lan_ip}:{self.rtsp_port}/sub",
+            "lan_ip": self.lan_ip,
+            "web_port": self.web_port,
+            "monitors": self.monitors_info,
+            "selected_monitors": self.selected_monitors,
+            "settings": {
+                "main_res": self.main_res,
+                "fps": self.fps,
+                "video_bitrate": self.video_bitrate,
+                "audio_codec": self.audio_codec,
+                "aspect_mode": self.aspect_mode,
+                "show_cursor": self.show_cursor,
+                "capture_pc_audio": self.capture_pc_audio,
+            },
+        }
+
     def _extract_bundled_assets(self):
         """If running from PyInstaller single-file .exe, unpack bundled mediamtx and chrome_extension."""
         try:
@@ -182,7 +254,7 @@ class NVRCastEngine:
                 shutil.copy2(bundled_mtx, MEDIAMTX_EXE)
 
             bundled_ext = os.path.join(BUNDLE_DIR, "chrome_extension")
-            if os.path.isdir(bundled_ext) and not os.path.isdir(EXT_DIR):
+            if os.path.isdir(bundled_ext):
                 shutil.copytree(bundled_ext, EXT_DIR, dirs_exist_ok=True)
         except Exception as e:
             self.log(f"Asset unpack note: {e}")
@@ -216,10 +288,6 @@ class NVRCastEngine:
             return [{"index": 1, "label": "Primary Display (1920x1080)", "left": 0, "top": 0, "width": 1920, "height": 1080}]
 
     def compute_monitor_region(self, selected_indices: list = None) -> tuple:
-        """
-        Given a list of monitor indices (e.g. [1], [2], [1, 2], or [0] for all),
-        computes the combined bounding box (left, top, width, height) and human-readable label.
-        """
         self.monitors_info = self.detect_monitors()
         if not selected_indices:
             selected_indices = self.selected_monitors or [1]
@@ -296,7 +364,6 @@ class NVRCastEngine:
         return os.path.isfile(MEDIAMTX_EXE)
 
     def write_mediamtx_config(self):
-        """Write custom mediamtx.yml optimized for Universal NVR RTSP compatibility (Hikvision, Dahua, Uniview, Reolink)."""
         yml_content = f"""logLevel: info
 logDestinations: [stdout, file]
 logFile: mediamtx.log
@@ -500,12 +567,14 @@ paths:
             + ["-f", "rtsp", "-rtsp_transport", "tcp", sub_url]
         )
 
-    def start_standby_stream(self):
+    def start_standby_stream(self, source: str = "System Standby"):
         """Broadcasts an always-on Standby feed so the NVR channel never shows 'Offline'."""
         with self.stream_lock:
             self._stop_ffmpeg_locked()
             self.current_mode = "STANDBY"
             self.current_title = "Standby Screen (Ready to Cast)"
+            self.active_source = source
+            self.is_paused = False
             self.status_cb(self.current_mode, self.current_title)
 
             font_spec = "fontfile='C\\:/Windows/Fonts/arial.ttf'"
@@ -517,7 +586,7 @@ paths:
                 f"drawtext={font_spec}:text='STATUS\\: ONLINE & READY FOR STREAM (HIKVISION / DAHUA / ONVIF)':fontcolor=#4ade80:fontsize=25:x=(w-text_w)/2:y=220,"
                 f"drawtext={font_spec}:text='Main RTSP\\: rtsp\\://{self.lan_ip}\\:{self.rtsp_port}/main':fontcolor=#93c5fd:fontsize=25:x=(w-text_w)/2:y=310,"
                 f"drawtext={font_spec}:text='Web Studio / Phone Remote\\: http\\://{self.lan_ip}\\:{self.web_port}':fontcolor=#fde047:fontsize=25:x=(w-text_w)/2:y=370,"
-                f"drawtext={font_spec}:text='Cast YouTube, Web Videos, Meeting Tabs, or Selected PC Monitors':fontcolor=#cbd5e1:fontsize=22:x=(w-text_w)/2:y=460,"
+                f"drawtext={font_spec}:text='Cast YouTube, Photo Gallery, Video Loops, or Selected PC Monitors':fontcolor=#cbd5e1:fontsize=22:x=(w-text_w)/2:y=460,"
                 f"drawtext={font_spec}:text='%{{localtime}}':fontcolor=#94a3b8:fontsize=24:x=(w-text_w)/2:y=545"
             )
 
@@ -545,15 +614,143 @@ paths:
             )
             self.log("Standby feed active on /main and /sub (NVR channel stays online).")
 
-    def start_youtube_stream(self, query_or_url: str, start_sec: int = 0):
+    def _start_paused_hold_screen(self, held_title: str):
+        """Broadcasts a clean PAUSED overlay screen so the NVR stays connected while a video is paused."""
+        safe_title = (
+            held_title[:48]
+            .replace("'", "")
+            .replace(":", "\\:")
+            .replace("%", "")
+            .replace("\\", "/")
+        )
+        font_spec = "fontfile='C\\:/Windows/Fonts/arial.ttf'"
+        drawtext_filter = (
+            f"color=c=#0f172a:s=1280x720:r={self.fps},"
+            "drawbox=x=100:y=120:w=1080:h=480:color=#1e293b@0.90:t=fill,"
+            "drawbox=x=100:y=120:w=1080:h=6:color=#f59e0b:t=fill,"
+            f"drawtext={font_spec}:text='STREAM PAUSED':fontcolor=#f59e0b:fontsize=44:x=(w-text_w)/2:y=220,"
+            f"drawtext={font_spec}:text='{safe_title}':fontcolor=white:fontsize=28:x=(w-text_w)/2:y=310,"
+            f"drawtext={font_spec}:text='Position\\: {self.seek_offset_sec}s — Click Resume in App / Web / Extension':fontcolor=#93c5fd:fontsize=24:x=(w-text_w)/2:y=390,"
+            f"drawtext={font_spec}:text='%{{localtime}}':fontcolor=#94a3b8:fontsize=22:x=(w-text_w)/2:y=480"
+        )
+        cmd = [
+            self.ffmpeg_exe,
+            "-hide_banner",
+            "-loglevel", "warning",
+            "-re",
+            "-f", "lavfi",
+            "-i", drawtext_filter,
+            "-f", "lavfi",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        ] + self._build_dual_output_args("1:a:0")
+
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        self.ffmpeg_proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            startupinfo=startupinfo,
+        )
+
+    def toggle_pause(self, force_state: bool = None, source: str = None) -> bool:
+        """Pauses or resumes the active stream across all modes without dropping the NVR RTSP channel."""
+        target_pause = (not self.is_paused) if force_state is None else bool(force_state)
+        if self.current_mode == "STANDBY" or self.current_mode == "STOPPED":
+            return False
+
+        if self.current_mode in ("GALLERY", "SCREEN"):
+            self.is_paused = target_pause
+            state_txt = "PAUSED" if self.is_paused else "RESUMED"
+            self.log(f"{self.current_mode} stream {state_txt} (by {source or 'User'}).")
+            self.status_cb(self.current_mode, f"{'[PAUSED] ' if self.is_paused else ''}{self.current_title.replace('[PAUSED] ', '')}")
+            return self.is_paused
+
+        if self.current_mode == "YOUTUBE":
+            if target_pause and not self.is_paused:
+                self.seek_offset_sec = self.get_current_playback_sec()
+                self.is_paused = True
+                with self.stream_lock:
+                    self._stop_ffmpeg_locked()
+                    self._start_paused_hold_screen(self.current_title)
+                self.status_cb("YOUTUBE", f"[PAUSED @ {self.seek_offset_sec}s] {self.current_title}")
+                self.log(f"Paused YouTube/Web stream at {self.seek_offset_sec}s.")
+            elif not target_pause and self.is_paused:
+                self.is_paused = False
+                self.log(f"Resuming YouTube/Web stream from {self.seek_offset_sec}s...")
+                self.start_youtube_stream(
+                    self.current_url,
+                    start_sec=self.seek_offset_sec,
+                    loop=self.loop_video,
+                    source=source or self.active_source,
+                )
+            return self.is_paused
+
+        if self.current_mode == "FILE":
+            if target_pause and not self.is_paused:
+                self.seek_offset_sec = self.get_current_playback_sec()
+                self.is_paused = True
+                with self.stream_lock:
+                    self._stop_ffmpeg_locked()
+                    self._start_paused_hold_screen(self.current_title)
+                self.status_cb("FILE", f"[PAUSED @ {self.seek_offset_sec}s] {self.current_title}")
+                self.log(f"Paused local file stream at {self.seek_offset_sec}s.")
+            elif not target_pause and self.is_paused:
+                self.is_paused = False
+                self.log(f"Resuming local file stream from {self.seek_offset_sec}s...")
+                self.start_local_file_stream(
+                    self.current_filepath,
+                    start_sec=self.seek_offset_sec,
+                    loop=self.loop_video,
+                    source=source or self.active_source,
+                )
+            return self.is_paused
+
+        return self.is_paused
+
+    def seek_stream(self, target_sec: int = None, delta_sec: int = None, source: str = None):
+        """Seeks an active YouTube/Web or Local Video stream to a specific timestamp or relative +/- seconds."""
+        if self.current_mode not in ("YOUTUBE", "FILE"):
+            return
+        cur = self.get_current_playback_sec()
+        new_sec = max(0, target_sec if target_sec is not None else (cur + (delta_sec or 0)))
+        self.seek_offset_sec = new_sec
+        self.is_paused = False
+        self.log(f"Seeking {self.current_mode} stream to {new_sec}s (triggered by {source or 'User'})...")
+        if self.current_mode == "YOUTUBE" and self.current_url:
+            self.start_youtube_stream(
+                self.current_url,
+                start_sec=new_sec,
+                loop=self.loop_video,
+                source=source or self.active_source,
+            )
+        elif self.current_mode == "FILE" and self.current_filepath:
+            self.start_local_file_stream(
+                self.current_filepath,
+                start_sec=new_sec,
+                loop=self.loop_video,
+                source=source or self.active_source,
+            )
+
+    def start_youtube_stream(
+        self,
+        query_or_url: str,
+        start_sec: int = 0,
+        loop: bool = None,
+        source: str = "Desktop App",
+    ):
         """Resolves any YouTube URL, search query, or web video link (.m3u8/.mp4/Twitch/FB) and streams to NVR."""
         query_or_url = query_or_url.strip()
         if not query_or_url:
             return
+        if loop is not None:
+            self.loop_video = bool(loop)
 
         def _worker():
-            self.log(f"Resolving video stream for: {query_or_url} (start={start_sec}s)...")
-            self.status_cb("LOADING", f"Loading: {query_or_url[:50]}...")
+            self.log(f"[{source}] Resolving video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
+            self.status_cb("LOADING", f"Loading: {query_or_url[:48]}...")
 
             lower_q = query_or_url.lower()
             is_direct_media = any(
@@ -628,8 +825,12 @@ paths:
             with self.stream_lock:
                 self._stop_ffmpeg_locked()
                 self.current_mode = "YOUTUBE"
-                self.current_title = title
+                self.current_title = f"{'[LOOP] ' if self.loop_video else ''}{title}"
                 self.current_url = query_or_url
+                self.active_source = source
+                self.is_paused = False
+                self.seek_offset_sec = int(start_sec)
+                self.stream_started_at = time.time()
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -645,7 +846,7 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
 
-            self.log(f"NOW STREAMING TO NVR: {title}")
+            self.log(f"NOW STREAMING TO NVR ({source}): {title}")
 
             for line in (proc_ref.stdout or []):
                 line_str = line.strip()
@@ -654,33 +855,58 @@ paths:
 
             proc_ref.wait()
             with self.stream_lock:
-                if self.ffmpeg_proc == proc_ref and self.running:
-                    self.log(f"Finished playing '{title}'. Returning to Standby feed...")
-                    threading.Thread(target=self.start_standby_stream, daemon=True).start()
+                if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused:
+                    if self.loop_video:
+                        self.log(f"Looping YouTube/Web video '{title}' from beginning...")
+                        threading.Thread(
+                            target=self.start_youtube_stream,
+                            args=(query_or_url, 0, True, source),
+                            daemon=True,
+                        ).start()
+                    else:
+                        self.log(f"Finished playing '{title}'. Returning to Standby feed...")
+                        threading.Thread(target=self.start_standby_stream, daemon=True).start()
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def start_local_file_stream(self, filepath: str):
+    def start_local_file_stream(
+        self,
+        filepath: str,
+        start_sec: int = 0,
+        loop: bool = None,
+        source: str = "Desktop App",
+    ):
         if not os.path.isfile(filepath):
             self.log(f"File not found: {filepath}")
             return
+        if loop is not None:
+            self.loop_video = bool(loop)
 
         def _worker():
             title = os.path.basename(filepath)
+            loop_args = ["-stream_loop", "-1"] if self.loop_video else []
+            seek_args = ["-ss", str(start_sec)] if start_sec > 0 else []
             cmd = (
                 [
                     self.ffmpeg_exe,
                     "-hide_banner",
                     "-loglevel", "warning",
                     "-re",
-                    "-i", filepath,
                 ]
+                + loop_args
+                + seek_args
+                + ["-i", filepath]
                 + self._build_dual_output_args("0:a:0?")
             )
             with self.stream_lock:
                 self._stop_ffmpeg_locked()
                 self.current_mode = "FILE"
-                self.current_title = f"File: {title}"
+                self.current_filepath = filepath
+                self.current_title = f"{'[LOOP] ' if self.loop_video else ''}File: {title}"
+                self.active_source = source
+                self.is_paused = False
+                self.seek_offset_sec = int(start_sec)
+                self.stream_started_at = time.time()
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -695,21 +921,213 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
 
-            self.log(f"Streaming local file to NVR: {title}")
+            self.log(f"Streaming local file to NVR ({source}, loop={self.loop_video}): {title}")
             proc_ref.wait()
             with self.stream_lock:
-                if self.ffmpeg_proc == proc_ref and self.running:
+                if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused:
                     self.log("Local file finished. Returning to Standby feed...")
                     threading.Thread(target=self.start_standby_stream, daemon=True).start()
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def start_gallery_slideshow(
+        self,
+        folder_or_files,
+        interval_sec: int = 5,
+        shuffle: bool = False,
+        source: str = "Photo Gallery",
+    ):
+        """
+        Streams a Photo Gallery / Folder Slideshow to the NVR with configurable slide timer,
+        random shuffle option, Next/Prev slide controls, and WASAPI PC Speaker background audio.
+        """
+        if Image is None:
+            self.log("ERROR: 'Pillow' (PIL) is required for Photo Gallery Slideshow.")
+            return
+
+        images = []
+        if isinstance(folder_or_files, str):
+            folder_path = folder_or_files.strip()
+            if os.path.isdir(folder_path):
+                self.gallery_folder = folder_path
+                for entry in sorted(os.listdir(folder_path)):
+                    full = os.path.join(folder_path, entry)
+                    if os.path.isfile(full) and entry.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                        images.append(full)
+            elif os.path.isfile(folder_path) and folder_path.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                self.gallery_folder = os.path.dirname(folder_path)
+                images.append(folder_path)
+        elif isinstance(folder_or_files, list):
+            for p in folder_or_files:
+                if os.path.isfile(p) and p.lower().endswith(SUPPORTED_IMAGE_EXTS):
+                    images.append(p)
+            if images:
+                self.gallery_folder = os.path.dirname(images[0])
+
+        if not images:
+            self.log("Gallery Slideshow: No supported images (.jpg, .png, .webp, .bmp) found in selection!")
+            return
+
+        self.gallery_interval = max(1, int(interval_sec or 5))
+        self.gallery_shuffle = bool(shuffle)
+        if self.gallery_shuffle:
+            random.shuffle(images)
+        self.gallery_images = images
+        self.gallery_index = 0
+        self.gallery_force_step = 0
+
+        def _render_slide_bgra(img_path: str, idx: int, total: int, out_w: int, out_h: int) -> bytes:
+            canvas = Image.new("RGB", (out_w, out_h), (15, 23, 42))
+            try:
+                with Image.open(img_path) as im:
+                    im = ImageOps.exif_transpose(im).convert("RGB")
+                    if self.aspect_mode == "stretch":
+                        fitted = im.resize((out_w, out_h), Image.Resampling.LANCZOS)
+                        canvas.paste(fitted, (0, 0))
+                    elif self.aspect_mode == "crop":
+                        fitted = ImageOps.fit(im, (out_w, out_h), Image.Resampling.LANCZOS)
+                        canvas.paste(fitted, (0, 0))
+                    else:
+                        im.thumbnail((out_w, out_h), Image.Resampling.LANCZOS)
+                        ox = (out_w - im.width) // 2
+                        oy = (out_h - im.height) // 2
+                        canvas.paste(im, (ox, oy))
+            except Exception as e:
+                self.log(f"Slide load warning ({os.path.basename(img_path)}): {e}")
+
+            # Draw subtle slide counter badge in bottom-right corner
+            draw = ImageDraw.Draw(canvas)
+            try:
+                font = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 18)
+            except Exception:
+                font = ImageFont.load_default()
+            fname = os.path.basename(img_path)
+            badge_txt = f"  [{idx + 1}/{total}] {fname}  •  {self.gallery_interval}s {'(Shuffle)' if self.gallery_shuffle else ''}  "
+            bbox = draw.textbbox((0, 0), badge_txt, font=font)
+            bw = bbox[2] - bbox[0]
+            bh = bbox[3] - bbox[1] + 12
+            bx = out_w - bw - 20
+            by = out_h - bh - 16
+            draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=8, fill=(15, 23, 42))
+            draw.text((bx, by + 5), badge_txt, font=font, fill=(248, 250, 252))
+
+            # Convert RGB -> BGRA raw bytes for FFmpeg
+            r, g, b = canvas.split()
+            a = Image.new("L", (out_w, out_h), 255)
+            bgra = Image.merge("RGBA", (b, g, r, a))
+            return bgra.tobytes()
+
+        def _worker():
+            out_w, out_h = [int(x) for x in self.main_res.split("x")]
+            folder_name = os.path.basename(self.gallery_folder) or "Selected Photos"
+
+            with self.stream_lock:
+                self._stop_ffmpeg_locked()
+                self.screen_stop_event.clear()
+                stop_evt = self.screen_stop_event
+
+                audio_info = self._start_wasapi_audio_tcp_feeder(stop_evt)
+                if audio_info:
+                    aport, arate, achan = audio_info
+                    audio_input_args = [
+                        "-f", "s16le",
+                        "-ar", str(arate),
+                        "-ac", str(achan),
+                        "-i", f"tcp://127.0.0.1:{aport}",
+                    ]
+                else:
+                    audio_input_args = [
+                        "-f", "lavfi",
+                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                    ]
+
+                cmd = (
+                    [
+                        self.ffmpeg_exe,
+                        "-hide_banner",
+                        "-loglevel", "warning",
+                        "-f", "rawvideo",
+                        "-pix_fmt", "bgra",
+                        "-s", f"{out_w}x{out_h}",
+                        "-r", str(self.fps),
+                        "-i", "pipe:0",
+                    ]
+                    + audio_input_args
+                    + self._build_dual_output_args("1:a:0")
+                )
+
+                self.current_mode = "GALLERY"
+                self.active_source = source
+                self.is_paused = False
+                self.current_title = f"Gallery: {folder_name} ({len(self.gallery_images)} photos, {self.gallery_interval}s)"
+                self.status_cb(self.current_mode, self.current_title)
+
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                self.ffmpeg_proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=out_w * out_h * 4 * 2,
+                    startupinfo=startupinfo,
+                )
+                proc_ref = self.ffmpeg_proc
+
+            self.log(
+                f"Started Photo Gallery Slideshow ({len(self.gallery_images)} photos, "
+                f"timer={self.gallery_interval}s, shuffle={self.gallery_shuffle})"
+            )
+
+            frame_interval = 1.0 / float(self.fps)
+            cur_idx = -1
+            cur_frame_bytes = None
+            slide_deadline = 0.0
+
+            try:
+                while not stop_evt.is_set() and proc_ref.poll() is None:
+                    t0 = time.perf_counter()
+                    now = time.time()
+
+                    if cur_frame_bytes is None or self.gallery_force_step != 0 or (not self.is_paused and now >= slide_deadline):
+                        if cur_frame_bytes is None:
+                            cur_idx = 0
+                        elif self.gallery_force_step != 0:
+                            cur_idx = (cur_idx + self.gallery_force_step) % len(self.gallery_images)
+                            self.gallery_force_step = 0
+                        else:
+                            cur_idx = (cur_idx + 1) % len(self.gallery_images)
+                            if cur_idx == 0 and self.gallery_shuffle and len(self.gallery_images) > 1:
+                                random.shuffle(self.gallery_images)
+
+                        self.gallery_index = cur_idx
+                        img_file = self.gallery_images[cur_idx]
+                        cur_frame_bytes = _render_slide_bgra(img_file, cur_idx, len(self.gallery_images), out_w, out_h)
+                        slide_deadline = time.time() + float(self.gallery_interval)
+                        self.current_title = f"Gallery [{cur_idx + 1}/{len(self.gallery_images)}]: {os.path.basename(img_file)}"
+                        self.status_cb(self.current_mode, self.current_title)
+
+                    proc_ref.stdin.write(cur_frame_bytes)
+                    elapsed = time.perf_counter() - t0
+                    sleep_time = frame_interval - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+            except Exception as e:
+                if not stop_evt.is_set():
+                    self.log(f"Gallery slideshow ended: {e}")
+            finally:
+                stop_evt.set()
+                with self.stream_lock:
+                    if self.ffmpeg_proc == proc_ref and self.running and not stop_evt.is_set():
+                        threading.Thread(target=self.start_standby_stream, daemon=True).start()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def step_gallery_slide(self, step: int = 1):
+        if self.current_mode == "GALLERY":
+            self.gallery_force_step = 1 if step >= 0 else -1
+
     def _start_wasapi_audio_tcp_feeder(self, stop_evt: threading.Event):
-        """
-        Opens a local TCP socket that streams live PC Speaker WASAPI Loopback audio
-        (with automatic silence padding when speakers are idle) into FFmpeg.
-        Returns (port, sample_rate, channels) or None if unavailable.
-        """
         if not self.capture_pc_audio or pyaudio is None or self.audio_codec == "none":
             return None
 
@@ -798,11 +1216,7 @@ paths:
             self.log(f"PC Audio Loopback fallback to silent track: {e}")
             return None
 
-    def start_screen_cast(self, monitor_indices: list = None):
-        """
-        Captures the selected monitor(s) (1, 2, All, or any subset) via WinSta0\\Default + MSS,
-        with optional live mouse cursor and WASAPI PC Speaker Audio Loopback, streaming to NVR.
-        """
+    def start_screen_cast(self, monitor_indices: list = None, source: str = "Desktop App"):
         if monitor_indices is not None:
             self.selected_monitors = monitor_indices
 
@@ -852,6 +1266,8 @@ paths:
 
                 self.current_mode = "SCREEN"
                 self.current_title = f"PC Desktop: {desc}"
+                self.active_source = source
+                self.is_paused = False
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -866,19 +1282,22 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
 
-            self.log(f"Started Desktop Mirroring [{desc}] @ {self.fps}fps (Aspect={self.aspect_mode}) to NVR.")
+            self.log(f"[{source}] Started Desktop Mirroring [{desc}] @ {self.fps}fps to NVR.")
 
             frame_interval = 1.0 / float(self.fps)
             sct = None
+            last_buf = None
             try:
                 sct = mss.MSS()
                 while not stop_evt.is_set() and proc_ref.poll() is None:
                     t0 = time.perf_counter()
-                    shot = sct.grab(capture_rect)
-                    buf = bytearray(shot.raw)
-                    if self.show_cursor:
-                        draw_cursor_on_bgra(buf, cap_w, cap_h, mon_left, mon_top)
-                    proc_ref.stdin.write(buf)
+                    if not self.is_paused or last_buf is None:
+                        shot = sct.grab(capture_rect)
+                        buf = bytearray(shot.raw)
+                        if self.show_cursor:
+                            draw_cursor_on_bgra(buf, cap_w, cap_h, mon_left, mon_top)
+                        last_buf = buf
+                    proc_ref.stdin.write(last_buf)
                     elapsed = time.perf_counter() - t0
                     sleep_time = frame_interval - elapsed
                     if sleep_time > 0:
@@ -899,14 +1318,25 @@ paths:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def start_browser_cast(self, label: str = "Web Meeting Screen/Tab Share"):
-        """Receives live WebM chunks from the browser's getDisplayMedia() API and pipes them to NVR RTSP."""
+    def start_browser_cast(
+        self,
+        label: str = "Web Meeting Screen/Tab Share",
+        source: str = "Web Studio / Chrome Extension",
+    ):
+        """
+        Receives live WebM chunks from either:
+          - Chrome Extension HTML5 <video>.captureStream() (PiP-style live player mirroring with instant seek/pause sync!)
+          - Web Cast Studio getDisplayMedia() (Meeting-style Tab / Window / Screen share)
+        and pipes them to the NVR RTSP server.
+        """
         with self.stream_lock:
             self._stop_ffmpeg_locked()
-            self.browser_chunk_queue = queue.Queue(maxsize=200)
+            self.browser_chunk_queue = queue.Queue(maxsize=300)
             q_ref = self.browser_chunk_queue
             self.current_mode = "BROWSER"
             self.current_title = label
+            self.active_source = source
+            self.is_paused = False
             self.status_cb(self.current_mode, self.current_title)
 
             cmd = (
@@ -933,7 +1363,7 @@ paths:
             )
             proc_ref = self.ffmpeg_proc
 
-        self.log(f"Started Meeting-Style Browser Screen/Tab Share: '{label}'")
+        self.log(f"[{source}] Started Live Browser Cast: '{label}'")
 
         def _feeder():
             try:
@@ -954,7 +1384,7 @@ paths:
                 proc_ref.wait()
                 with self.stream_lock:
                     if self.ffmpeg_proc == proc_ref and self.running:
-                        self.log("Browser screen share stopped. Returning to Standby feed...")
+                        self.log("Browser cast stopped. Returning to Standby feed...")
                         threading.Thread(target=self.start_standby_stream, daemon=True).start()
 
         threading.Thread(target=_feeder, daemon=True).start()
