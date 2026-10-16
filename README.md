@@ -7,6 +7,14 @@
 [![Compatible NVRs](https://img.shields.io/badge/Works%20With-Hikvision%20%7C%20Dahua%20%7C%20Uniview%20%7C%20Reolink%20%7C%20ONVIF-22c55e?style=for-the-badge)](#%EF%B8%8F-supported-nvr--cctv-brands)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
+<p align="center">
+  <img src="assets/nvr_cast_hub_hero.png" alt="NVR Cast Hub v0.1.0-beta Hero Showcase" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/nvr_cast_hub_demo.gif" alt="NVR Cast Hub v0.1.0-beta Live Animated Demo" width="100%">
+</p>
+
 ---
 
 ## 🧩 A Complete 3-in-1 Casting Ecosystem (Not Just a Script or Extension)
