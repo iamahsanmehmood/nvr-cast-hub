@@ -278,12 +278,12 @@ class NVRCastDesktopApp:
         )
         self.pause_btn.pack(side=tk.RIGHT, padx=(0, 4))
 
-        # Card 2: YouTube, Web Video & Local Movie Caster
+        # Card 2: YouTube, Playlist, Web Video & Local Movie Caster
         yt_card = self._make_card(self.root)
 
         tk.Label(
             yt_card,
-            text="1.  YOUTUBE, WEB STREAM & LOCAL VIDEO CASTER  (WITH SEEK & 24/7 INFINITE LOOP)",
+            text="1.  YOUTUBE VIDEO / PLAYLIST, WEB STREAM & LOCAL VIDEO CASTER  (AUTO-PLAYS PLAYLISTS & 24/7 LOOP)",
             font=("Segoe UI", 9, "bold"),
             bg="#ffffff",
             fg="#334155",
@@ -309,7 +309,7 @@ class NVRCastDesktopApp:
         self.loop_video_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             yt_row,
-            text="⟲  Loop Video",
+            text="⟲  Loop",
             variable=self.loop_video_var,
             font=("Segoe UI", 9, "bold"),
             bg="#ffffff",
@@ -317,9 +317,26 @@ class NVRCastDesktopApp:
             selectcolor="#ffffff",
             activebackground="#ffffff",
             command=self.on_settings_change,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
-        self._make_btn(yt_row, "▶  Stream Video to NVR", self.on_stream_youtube, "primary", padx=14, pady=4).pack(
+        self._make_btn(
+            yt_row,
+            "◀ Prev",
+            lambda: self.engine.step_gallery_slide(-1),
+            "secondary",
+            padx=8,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 3))
+        self._make_btn(
+            yt_row,
+            "Next ▶",
+            lambda: self.engine.step_gallery_slide(1),
+            "secondary",
+            padx=8,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(yt_row, "▶  Stream Video / Playlist", self.on_stream_youtube, "primary", padx=14, pady=4).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         self._make_btn(yt_row, "Browse Video File...", self.on_stream_file, "secondary", padx=11, pady=4).pack(side=tk.LEFT)

@@ -10,6 +10,7 @@ import ctypes
 from ctypes import wintypes
 import socket
 import shutil
+import urllib.parse
 import urllib.request
 import zipfile
 import threading
@@ -186,6 +187,9 @@ class NVRCastEngine:
         self.seek_offset_sec = 0
         self._yt_cache = {}
         self._cast_gen = 0
+        self.playlist_items = []
+        self.playlist_index = 0
+        self.playlist_title = ""
 
         # Gallery Slideshow State
         self.gallery_folder = ""
@@ -261,6 +265,11 @@ class NVRCastEngine:
             "playback_sec": self.get_current_playback_sec(),
             "duration_sec": int(self.browser_duration_sec),
             "browser_session_id": self.browser_session_id,
+            "playlist": {
+                "title": self.playlist_title,
+                "count": len(self.playlist_items),
+                "index": self.playlist_index,
+            },
             "gallery": {
                 "folder": self.gallery_folder,
                 "count": len(self.gallery_images),
@@ -744,6 +753,7 @@ paths:
                     start_sec=self.seek_offset_sec,
                     loop=self.loop_video,
                     source=source or self.active_source,
+                    _from_playlist=(len(self.playlist_items) > 1),
                 )
             return self.is_paused
 
@@ -800,6 +810,7 @@ paths:
                 start_sec=new_sec,
                 loop=self.loop_video,
                 source=source or self.active_source,
+                _from_playlist=(len(self.playlist_items) > 1),
             )
         elif self.current_mode == "FILE" and self.current_filepath:
             self.start_local_file_stream(
@@ -809,14 +820,63 @@ paths:
                 source=source or self.active_source,
             )
 
+    def _prefetch_yt_url(self, target_url: str):
+        """Pre-resolves the next playlist video's HLS stream URLs in the background so track transitions are instant."""
+        if not target_url or target_url in self._yt_cache:
+            return
+        ydl_opts = {
+            "format": (
+                "bestvideo[height<=720][protocol^=m3u8][vcodec^=avc1]+bestaudio[protocol^=m3u8]/"
+                "bestvideo[height<=1080][protocol^=m3u8][vcodec^=avc1]+bestaudio[protocol^=m3u8]/"
+                "bestvideo[height<=720][protocol^=m3u8]+bestaudio[protocol^=m3u8]/"
+                "best[height<=720][protocol^=m3u8]/"
+                "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+            ),
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "js_runtimes": {"node": {}},
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(target_url, download=False)
+                if "entries" in info and info["entries"]:
+                    info = info["entries"][0]
+                title = info.get("title", "Web Video Stream")
+                is_live = info.get("is_live", False)
+                req_formats = info.get("requested_formats")
+                if req_formats and len(req_formats) >= 2:
+                    video_url = req_formats[0]["url"]
+                    audio_url = req_formats[1]["url"]
+                    proto = req_formats[0].get("protocol", "")
+                else:
+                    video_url = info["url"]
+                    audio_url = None
+                    proto = info.get("protocol", "")
+                is_hls = ("m3u8" in proto) or (".m3u8" in video_url) or ("hls_playlist" in video_url)
+                self._yt_cache[target_url] = {
+                    "title": title,
+                    "is_live": is_live,
+                    "video_url": video_url,
+                    "audio_url": audio_url,
+                    "is_hls": is_hls,
+                    "ts": time.time(),
+                }
+        except Exception:
+            pass
+
     def start_youtube_stream(
         self,
         query_or_url: str,
         start_sec: int = 0,
         loop: bool = None,
         source: str = "Desktop App",
+        _from_playlist: bool = False,
     ):
-        """Resolves any YouTube URL, search query, or web video link (.m3u8/.mp4/Twitch/FB) and streams to NVR."""
+        """
+        Resolves any YouTube URL, YouTube Playlist (plays all videos one by one automatically),
+        search query, or web video link (.m3u8/.mp4/Twitch/FB) and streams to NVR.
+        """
         query_or_url = query_or_url.strip()
         if not query_or_url:
             return
@@ -827,7 +887,100 @@ paths:
         my_gen = self._cast_gen
 
         def _worker():
-            self.log(f"[{source}] Starting video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
+            nonlocal query_or_url, start_sec
+
+            # 1. Check if the user pasted a YouTube Playlist link (e.g. /playlist?list=... or /watch?v=...&list=...)
+            if not _from_playlist:
+                has_playlist_param = False
+                list_id = ""
+                seed_vid_id = ""
+                try:
+                    parsed = urllib.parse.urlparse(query_or_url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    if "list" in qs and qs["list"]:
+                        list_id = qs["list"][0].strip()
+                        has_playlist_param = bool(list_id)
+                    if "v" in qs and qs["v"]:
+                        seed_vid_id = qs["v"][0].strip()
+                except Exception:
+                    pass
+
+                if has_playlist_param:
+                    self.status_cb("LOADING", "Loading YouTube Playlist...")
+                    self.log(f"[{source}] Detecting YouTube Playlist (list={list_id})...")
+                    # For standard playlists (PL, OL, UU, FL), fetch the canonical playlist URL; for RD mixes, keep v=
+                    extract_target = (
+                        query_or_url
+                        if list_id.startswith("RD") and seed_vid_id
+                        else f"https://www.youtube.com/playlist?list={list_id}"
+                    )
+                    flat_opts = {
+                        "extract_flat": "in_playlist",
+                        "noplaylist": False,
+                        "playlistend": 100,
+                        "quiet": True,
+                        "no_warnings": True,
+                        "ignoreerrors": True,
+                        "js_runtimes": {"node": {}},
+                    }
+                    try:
+                        with yt_dlp.YoutubeDL(flat_opts) as ydl:
+                            pl_info = ydl.extract_info(extract_target, download=False)
+                        entries = (pl_info or {}).get("entries") or []
+                        items = []
+                        start_idx = 0
+                        for entry in entries:
+                            if not entry:
+                                continue
+                            vid_id = entry.get("id") or ""
+                            e_title = (entry.get("title") or "").strip()
+                            if e_title in ("[Deleted video]", "[Private video]"):
+                                continue
+                            raw_u = entry.get("url") or ""
+                            if raw_u.startswith("http"):
+                                v_url = raw_u
+                            elif vid_id:
+                                v_url = f"https://www.youtube.com/watch?v={vid_id}"
+                            else:
+                                continue
+                            if seed_vid_id and (vid_id == seed_vid_id or seed_vid_id in v_url):
+                                start_idx = len(items)
+                            items.append({
+                                "id": vid_id,
+                                "url": v_url,
+                                "title": e_title or f"Playlist Video #{len(items) + 1}",
+                            })
+
+                        if len(items) > 1:
+                            self.playlist_items = items
+                            self.playlist_index = start_idx
+                            self.playlist_title = (pl_info or {}).get("title") or "YouTube Playlist"
+                            query_or_url = items[start_idx]["url"]
+                            self.log(
+                                f"Loaded YouTube Playlist '{self.playlist_title}' ({len(items)} videos). "
+                                f"Auto-playing from [{start_idx + 1}/{len(items)}]: {items[start_idx]['title']}"
+                            )
+                        else:
+                            self.playlist_items = []
+                            self.playlist_index = 0
+                            self.playlist_title = ""
+                    except Exception as e:
+                        self.log(f"Playlist expansion note (falling back to single video): {e}")
+                        self.playlist_items = []
+                        self.playlist_index = 0
+                        self.playlist_title = ""
+                else:
+                    self.playlist_items = []
+                    self.playlist_index = 0
+                    self.playlist_title = ""
+
+            if my_gen != self._cast_gen:
+                return
+
+            in_playlist = len(self.playlist_items) > 1
+            pl_badge = f"Playlist [{self.playlist_index + 1}/{len(self.playlist_items)}] " if in_playlist else ""
+
+            self.log(f"[{source}] Starting {pl_badge}video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
             self.current_url = query_or_url
             self.active_source = source
 
@@ -844,7 +997,7 @@ paths:
                 video_url = cached["video_url"]
                 audio_url = cached["audio_url"]
                 is_hls = cached["is_hls"]
-                self.log(f"Using cached stream URLs for instant seek/play: '{title}'")
+                self.log(f"Using cached stream URLs for instant play: '{title}'")
             elif is_direct_media:
                 title = query_or_url.split("/")[-1].split("?")[0] or "Direct Media Stream"
                 is_live = ".m3u8" in lower_q or lower_q.startswith("rtsp://")
@@ -852,7 +1005,7 @@ paths:
                 audio_url = None
                 is_hls = ".m3u8" in lower_q
             else:
-                self.status_cb("LOADING", f"Loading: {query_or_url[:48]}...")
+                self.status_cb("LOADING", f"Loading {pl_badge}: {query_or_url[:40]}...")
                 # Prioritize m3u8_native H.264 (avc1) + m3u8 audio on YouTube to avoid SABR/VISIONOS HTTPS range hangs
                 ydl_opts = {
                     "format": (
@@ -899,11 +1052,24 @@ paths:
                         }
                 except Exception as e:
                     self.log(f"ERROR resolving video link: {e}")
+                    # If inside a playlist, automatically skip unavailable/blocked track and play next!
+                    if len(self.playlist_items) > 1 and self.playlist_index + 1 < len(self.playlist_items):
+                        self.playlist_index += 1
+                        nxt = self.playlist_items[self.playlist_index]
+                        self.log(f"Skipping unavailable track — advancing to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}")
+                        self.start_youtube_stream(nxt["url"], 0, self.loop_video, source, _from_playlist=True)
+                        return
                     self.status_cb(self.current_mode, self.current_title)
                     return
 
             if my_gen != self._cast_gen:
                 return
+
+            # Pre-resolve the upcoming playlist video in the background so track transition is instant
+            if len(self.playlist_items) > 1:
+                next_pl_idx = (self.playlist_index + 1) % len(self.playlist_items)
+                next_pl_url = self.playlist_items[next_pl_idx]["url"]
+                threading.Thread(target=self._prefetch_yt_url, args=(next_pl_url,), daemon=True).start()
 
             self.log(f"Matched Stream: '{title}' ({'LIVE' if is_live else 'VOD'}, {'HLS' if is_hls else 'HTTP'})")
 
@@ -937,12 +1103,14 @@ paths:
                 + self._build_dual_output_args(audio_map)
             )
 
+            display_title = f"{'[LOOP] ' if self.loop_video else ''}{pl_badge}{title}"
+
             with self.stream_lock:
                 if my_gen != self._cast_gen:
                     return
                 self._stop_ffmpeg_locked()
                 self.current_mode = "YOUTUBE"
-                self.current_title = f"{'[LOOP] ' if self.loop_video else ''}{title}"
+                self.current_title = display_title
                 self.current_url = query_or_url
                 self.active_source = source
                 self.is_paused = False
@@ -963,16 +1131,43 @@ paths:
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "YouTube")
 
-            self.log(f"NOW STREAMING TO NVR ({source}): {title}")
+            self.log(f"NOW STREAMING TO NVR ({source}): {display_title}")
 
             proc_ref.wait()
             with self.stream_lock:
                 if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused and my_gen == self._cast_gen:
-                    if self.loop_video:
+                    if len(self.playlist_items) > 1:
+                        if self.playlist_index + 1 < len(self.playlist_items):
+                            self.playlist_index += 1
+                            nxt = self.playlist_items[self.playlist_index]
+                            self.log(
+                                f"Playlist auto-advancing to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}"
+                            )
+                            threading.Thread(
+                                target=self.start_youtube_stream,
+                                args=(nxt["url"], 0, self.loop_video, source, True),
+                                daemon=True,
+                            ).start()
+                        elif self.loop_video:
+                            self.playlist_index = 0
+                            first = self.playlist_items[0]
+                            self.log(
+                                f"Playlist completed — Looping playlist from [1/{len(self.playlist_items)}]: {first['title']}"
+                            )
+                            threading.Thread(
+                                target=self.start_youtube_stream,
+                                args=(first["url"], 0, True, source, True),
+                                daemon=True,
+                            ).start()
+                        else:
+                            self.playlist_items = []
+                            self.log(f"Finished YouTube Playlist '{self.playlist_title}'. Returning to Standby feed...")
+                            threading.Thread(target=self.start_standby_stream, daemon=True).start()
+                    elif self.loop_video:
                         self.log(f"Looping YouTube/Web video '{title}' from beginning...")
                         threading.Thread(
                             target=self.start_youtube_stream,
-                            args=(query_or_url, 0, True, source),
+                            args=(query_or_url, 0, True, source, False),
                             daemon=True,
                         ).start()
                     else:
@@ -1322,8 +1517,26 @@ paths:
         threading.Thread(target=_worker, daemon=True).start()
 
     def step_gallery_slide(self, step: int = 1):
+        direction = 1 if step >= 0 else -1
         if self.current_mode == "GALLERY":
-            self.gallery_force_step = 1 if step >= 0 else -1
+            self.gallery_force_step = direction
+        elif self.current_mode == "YOUTUBE" and len(self.playlist_items) > 1:
+            self.playlist_index = (self.playlist_index + direction) % len(self.playlist_items)
+            nxt = self.playlist_items[self.playlist_index]
+            self.log(
+                f"Playlist skipped to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}"
+            )
+            self.start_youtube_stream(
+                nxt["url"],
+                start_sec=0,
+                loop=self.loop_video,
+                source=self.active_source,
+                _from_playlist=True,
+            )
+        elif self.current_mode == "BROWSER":
+            with self._browser_frame_lock:
+                self._browser_pending_cmds.append({"event": "playlist_step", "step": direction})
+            self.log(f"Live Chrome Playlist skip requested ({'Next' if direction > 0 else 'Prev'} track).")
 
     def _start_wasapi_audio_tcp_feeder(self, stop_evt: threading.Event):
         """

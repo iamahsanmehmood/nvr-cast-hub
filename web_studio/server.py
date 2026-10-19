@@ -357,33 +357,35 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
 
   <!-- Row 1: Video Streamer + Photo Gallery Slideshow -->
   <div class="grid-2col">
-    <!-- Card 1: YouTube & Local Video -->
+    <!-- Card 1: YouTube, Playlist & Local Video -->
     <div class="card">
       <div class="card-header">
         <div class="card-icon">
           <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 15 12 10 15 10 9"/></svg>
         </div>
-        <h3>1. YouTube, Web Stream &amp; Local Video Caster</h3>
+        <h3>1. YouTube Video / Playlist, Web Stream &amp; Local Video</h3>
       </div>
-      <p class="sub">Stream any YouTube video, live stream URL, search query, or local movie with instant seeking and infinite 24/7 loop.</p>
+      <p class="sub">Paste any YouTube video or Playlist URL (auto-plays all tracks one by one), live stream link, search query, or local movie.</p>
       <div class="row">
-        <input type="text" id="ytInput" placeholder="Paste YouTube URL, search phrase, or local file path...">
+        <input type="text" id="ytInput" placeholder="Paste YouTube video or Playlist URL, search phrase, or local file path...">
       </div>
       <div class="row" style="justify-content:space-between;">
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <label style="font-size:12.5px;font-weight:600;color:#475569;">Start (s):
-            <input type="number" id="startSec" style="width:74px;margin-left:4px;" min="0" value="0">
+            <input type="number" id="startSec" style="width:70px;margin-left:4px;" min="0" value="0">
           </label>
           <label class="check-pill">
             <input type="checkbox" id="chkLoopVideo" onchange="applySettings()">
-            <span>Loop Video Continuously</span>
+            <span>Loop Video / Playlist</span>
           </label>
+          <button class="btn-secondary" style="padding:5px 10px;" onclick="stepGallery(-1)" title="Previous Playlist Track">Prev Track</button>
+          <button class="btn-secondary" style="padding:5px 10px;" onclick="stepGallery(1)" title="Next Playlist Track">Next Track</button>
         </div>
       </div>
       <div class="row" style="margin-top:12px;margin-bottom:0;">
         <button class="btn-primary" style="flex:1.6;" onclick="castYT()">
           <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Stream Video to NVR
+          Stream Video / Playlist
         </button>
         <button class="btn-secondary" style="flex:1;" onclick="pickHostFile('video')">
           <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>

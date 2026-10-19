@@ -94,6 +94,10 @@
         } else if (typeof cmd.delta_sec === "number") {
           boundVideo.currentTime = Math.max(0, (boundVideo.currentTime || 0) + cmd.delta_sec);
         }
+      } else if (cmd.event === "playlist_step") {
+        const selector = cmd.step >= 0 ? ".ytp-next-button" : ".ytp-prev-button";
+        const navBtn = document.querySelector(selector);
+        if (navBtn) navBtn.click();
       }
     } catch (_) {}
   }
@@ -107,7 +111,9 @@
       return;
     }
     if (boundVideo && typeof res.loop === "boolean") {
-      boundVideo.loop = res.loop;
+      // Do not set single-video loop if playing a YouTube playlist so YouTube auto-advances to the next track!
+      const isPlaylist = window.location.search.includes("list=") || window.location.pathname.includes("/playlist");
+      boundVideo.loop = isPlaylist ? false : res.loop;
     }
     if (res.cmd) {
       applyRemoteCommand(res.cmd);
