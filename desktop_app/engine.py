@@ -504,6 +504,12 @@ class NVRCastEngine:
         self.local_audio_enabled = False
         self.local_audio_stop_evt = threading.Event()
 
+        # Embedded hardware PC player (libVLC) — set by the Desktop GUI when VLC is available.
+        # When active, the PC view + PC audio come from the embedded player (smooth, A/V synced),
+        # while FFmpeg only feeds the NVR (RTSP) plus a light 8 fps heartbeat for Web Studio & health.
+        self.use_embedded_player = False
+        self.local_player_hook = None
+
         # Live Preview & Transparent Stream Health Telemetry
         self.preview_enabled = True
         self._latest_preview_jpeg = b""
@@ -878,8 +884,80 @@ class NVRCastEngine:
         """Toggles local PC speaker audio playback when watching channels/videos inside the app."""
         self.local_audio_enabled = (not self.local_audio_enabled) if force_state is None else bool(force_state)
         self.save_persistent_config()
+        self._pc_player_command("mute", {"muted": not self.local_audio_enabled})
         self.log(f"App Local Speaker Audio: {'ON (Playing on PC Speakers)' if self.local_audio_enabled else 'MUTED'}")
         return self.local_audio_enabled
+
+    def _pc_player_enabled(self) -> bool:
+        return bool(self.use_embedded_player and self.local_player_hook and self.output_mode in ("local_only", "both"))
+
+    def _start_pc_feed_server(self, feed_q: "queue.Queue", gen: int) -> int:
+        """
+        Serves the prefetcher's muxed MPEG-TS (video + AAC audio) to the embedded PC player over
+        http://127.0.0.1:<port>/live.ts. One network pull feeds both NVR and PC, and split
+        YouTube video/audio playlists reach the PC player already muxed.
+        """
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(2)
+        srv.settimeout(0.5)
+        port = srv.getsockname()[1]
+
+        def _serve():
+            finished = False
+            try:
+                while not finished and gen == self._cast_gen and self.running:
+                    try:
+                        conn, _ = srv.accept()
+                    except socket.timeout:
+                        continue
+                    try:
+                        conn.settimeout(5.0)
+                        req = b""
+                        while b"\r\n\r\n" not in req and len(req) < 8192:
+                            part = conn.recv(1024)
+                            if not part:
+                                break
+                            req += part
+                        conn.sendall(
+                            b"HTTP/1.0 200 OK\r\nContent-Type: video/mp2t\r\n"
+                            b"Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
+                        )
+                        conn.settimeout(10.0)
+                        while gen == self._cast_gen and self.running:
+                            try:
+                                chunk = feed_q.get(timeout=0.5)
+                            except queue.Empty:
+                                continue
+                            if chunk is None:
+                                finished = True
+                                break
+                            conn.sendall(chunk)
+                    except Exception:
+                        pass  # player disconnected; allow it to reconnect
+                    finally:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+            finally:
+                try:
+                    srv.close()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_serve, daemon=True).start()
+        return port
+
+    def _pc_player_command(self, action: str, payload: dict = None):
+        hook = self.local_player_hook
+        if hook is None:
+            return
+        try:
+            hook(action, payload or {})
+        except Exception:
+            pass
 
     def _set_diagnostic_preview_frame(
         self,
@@ -933,16 +1011,15 @@ class NVRCastEngine:
 
     def get_next_preview_frame(self):
         """
-        Pops the next pre-decoded PIL.Image frame from the video jitter buffer for smooth
-        25 FPS presentation on the Desktop GUI, Floating PiP, and Full-Screen TV canvases.
-        Returns (pil_image, is_new_frame).
+        Returns (newest pre-decoded PIL.Image, is_new_frame) for the legacy (non-VLC) preview path.
+        FFmpeg already paces frames at 1.0x via the realtime filter, so we always present the newest
+        frame: queueing here made video drift up to ~1s behind audio whenever Tk ticked slower than 25 fps.
         """
         with self._preview_lock:
             if self._preview_frame_queue:
-                # If burst decoding queued > 28 frames (> 1.1s), trim oldest 1 frame to keep latency tight
-                if len(self._preview_frame_queue) > 28:
-                    self._preview_frame_queue.popleft()
-                return (self._preview_frame_queue.popleft(), True)
+                newest = self._preview_frame_queue[-1]
+                self._preview_frame_queue.clear()
+                return (newest, True)
             return (self._latest_preview_pil, False)
 
     def _attach_ffmpeg_log_drainer(self, proc: subprocess.Popen, tag: str = "FFmpeg"):
@@ -1168,6 +1245,7 @@ class NVRCastEngine:
             },
             "rtsp_main": f"rtsp://{self.lan_ip}:{self.rtsp_port}/main",
             "rtsp_sub": f"rtsp://{self.lan_ip}:{self.rtsp_port}/sub",
+            "pc_player": dict(getattr(self, "pc_player_stats", {}) or {}),
             "lan_ip": self.lan_ip,
             "web_port": self.web_port,
             "monitors": self.monitors_info,
@@ -1623,6 +1701,7 @@ paths:
 
     def _stop_ffmpeg_locked(self):
         self.screen_stop_event.set()
+        self._pc_player_command("stop")
         if self.browser_chunk_queue is not None:
             try:
                 self.browser_chunk_queue.put_nowait(None)
@@ -1790,6 +1869,7 @@ paths:
         audio_map: str,
         local_audio_port: int = None,
         pace_realtime: bool = False,
+        pc_player: bool = False,
     ) -> list:
         """
         Builds FFmpeg output arguments according to self.output_mode:
@@ -1797,6 +1877,8 @@ paths:
           - 'nvr_only':   /main (HD) + /sub (SD) RTSP + 1fps heartbeat on pipe:1
           - 'both':       /main (HD) + /sub (SD) RTSP + 854x480 @ 20fps MJPEG preview on pipe:1 + buffered local speaker audio
         When pace_realtime=True, paces decoded frames smoothly at 1.0x wall-clock speed via FFmpeg's realtime filter.
+        When pc_player=True, the embedded libVLC player renders the PC view, so pipe:1 only carries a light
+        8 fps 640x360 heartbeat (Web Studio preview + health telemetry) and no PCM audio is produced.
         """
         w, h = self.main_res.split("x")
         fps = int(self.fps)
@@ -1810,7 +1892,7 @@ paths:
         rt_filter = ",realtime=limit=2.5" if pace_realtime else ""
 
         local_audio_args = []
-        if local_audio_port:
+        if local_audio_port and not pc_player:
             local_audio_args = [
                 "-map", audio_map,
                 "-af", "aresample=async=1000",
@@ -1819,6 +1901,15 @@ paths:
                 "-ac", "2",
                 "-f", "s16le",
                 f"tcp://127.0.0.1:{local_audio_port}",
+            ]
+
+        if self.output_mode == "local_only" and pc_player:
+            # Embedded PC player shows the real video; FFmpeg just keeps health + Web Studio preview alive.
+            hb_scale = self._scale_expr("640", "360")
+            filter_complex = f"[0:v]fps=8{rt_filter},{hb_scale},format=yuvj420p[vprev]"
+            return [
+                "-filter_complex", filter_complex,
+                "-map", "[vprev]", "-c:v", "mjpeg", "-q:v", "6", "-f", "image2pipe", "pipe:1",
             ]
 
         if self.output_mode == "local_only":
@@ -1839,6 +1930,14 @@ paths:
                 f"[v1]{main_scale}[vmain];"
                 f"[v2]{sub_scale}[vsub];"
                 f"[v3]fps=1,{prev_scale},format=yuvj420p[vprev]"
+            )
+        elif pc_player:
+            hb_scale = self._scale_expr("640", "360")
+            filter_complex = (
+                f"[0:v]fps={fps}{rt_filter},split=3[v1][v2][v3];"
+                f"[v1]{main_scale},format=yuv420p[vmain];"
+                f"[v2]{sub_scale},format=yuv420p[vsub];"
+                f"[v3]fps=8,{hb_scale},format=yuvj420p[vprev]"
             )
         else:
             # In 'both' mode, share the single unified fps+realtime pipeline across all 3 branches
@@ -2528,7 +2627,12 @@ paths:
 
             dl_cmd = [self.ffmpeg_exe, "-hide_banner", "-loglevel", "warning"] + dl_input_args + dl_codec_args
 
-            local_aport = self._start_local_speaker_audio_sink() if self.output_mode in ("local_only", "both") else None
+            pc_play = self._pc_player_enabled()
+            local_aport = (
+                self._start_local_speaker_audio_sink()
+                if (self.output_mode in ("local_only", "both") and not pc_play)
+                else None
+            )
             cmd = (
                 [
                     self.ffmpeg_exe,
@@ -2538,11 +2642,16 @@ paths:
                     "-fflags", "+genpts+igndts+discardcorrupt",
                     "-i", "pipe:0",
                 ]
-                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport, pace_realtime=True)
+                + self._build_dual_output_args(
+                    "0:a:0?", local_audio_port=local_aport, pace_realtime=True, pc_player=pc_play
+                )
             )
 
             display_title = f"{'[LOOP] ' if self.loop_video else ''}{pl_badge}{title}"
             ts_q = queue.Queue(maxsize=2400)  # Up to ~75 MB in-memory MPEG-TS stream buffer
+            pc_q = queue.Queue(maxsize=2400) if pc_play else None
+            pc_feed_ok = [pc_play]
+            pc_port = self._start_pc_feed_server(pc_q, my_gen) if pc_play else None
 
             with self.stream_lock:
                 if my_gen != self._cast_gen:
@@ -2588,6 +2697,16 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "YouTube")
+                if pc_play:
+                    self._pc_player_command("play", {
+                        "url": f"http://127.0.0.1:{pc_port}/live.ts",
+                        "audio_url": None,
+                        "start_sec": 0,       # prefetcher already applied the seek
+                        "referrer": "",
+                        "is_live": True,      # local feed: no VLC-side seeking
+                        "loop": False,
+                        "title": display_title,
+                    })
 
             def _drain_dl_stderr(p_err):
                 if not p_err:
@@ -2621,6 +2740,13 @@ paths:
                                     break
                                 except queue.Full:
                                     continue
+                            if pc_feed_ok[0]:
+                                try:
+                                    pc_q.put(chunk, timeout=3.0)
+                                except queue.Full:
+                                    # PC player stalled for 3s+: stop teeing so the NVR feed is never held back
+                                    pc_feed_ok[0] = False
+                                    self.log("PC player feed stalled — NVR stream continues unaffected.")
 
                         # If live TV stream disconnected mid-broadcast after delivering data, reconnect seamlessly
                         if (
@@ -2657,6 +2783,11 @@ paths:
                         ts_q.put_nowait(None)
                     except Exception:
                         pass
+                    if pc_q is not None:
+                        try:
+                            pc_q.put(None, timeout=2.0)
+                        except Exception:
+                            pass
 
             def _pump_queue_to_decoder():
                 try:
@@ -2837,7 +2968,12 @@ paths:
             title = os.path.basename(filepath)
             loop_args = ["-stream_loop", "-1"] if self.loop_video else []
             seek_args = ["-ss", str(start_sec)] if start_sec > 0 else []
-            local_aport = self._start_local_speaker_audio_sink() if self.output_mode in ("local_only", "both") else None
+            pc_play = self._pc_player_enabled()
+            local_aport = (
+                self._start_local_speaker_audio_sink()
+                if (self.output_mode in ("local_only", "both") and not pc_play)
+                else None
+            )
             cmd = (
                 [
                     self.ffmpeg_exe,
@@ -2850,7 +2986,7 @@ paths:
                 + loop_args
                 + seek_args
                 + ["-i", filepath]
-                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport)
+                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport, pc_player=pc_play)
             )
             with self.stream_lock:
                 self._stop_ffmpeg_locked()
@@ -2878,6 +3014,13 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "File")
+                if pc_play:
+                    self._pc_player_command("play", {
+                        "url": filepath,
+                        "start_sec": int(start_sec or 0),
+                        "loop": bool(self.loop_video),
+                        "title": self.current_title,
+                    })
 
             self.log(f"Streaming local file to NVR ({source}, loop={self.loop_video}): {title}")
             proc_ref.wait()

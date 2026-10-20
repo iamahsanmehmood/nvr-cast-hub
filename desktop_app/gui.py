@@ -21,6 +21,7 @@ from desktop_app.engine import (
     CONFIG_JSON_PATH,
     DEFAULT_VLC_M3U_PATH,
 )
+from desktop_app.local_player import EmbeddedPlayer, reparent_window, resize_window
 from web_studio.server import WebRemoteHandler
 
 
@@ -94,7 +95,23 @@ class NVRCastDesktopApp:
         self.fs_audio_btn = None
         self._fs_last_size = (0, 0)
 
+        # Embedded hardware PC player (libVLC). Falls back to the legacy FFmpeg preview if VLC is missing.
+        self.video_host = None
+        self._video_host_home = None      # (parent_hwnd, x, y, w, h) inside the Studio preview frame
+        self._video_surface = "studio"    # studio | pip | fs
+        self._video_host_visible = False
+        self._pc_last_stats_ts = 0.0
+        self._pc_stats = {}
+        self.pc_player = EmbeddedPlayer(log_cb=self.engine.log)
+
         self._build_ui()
+        self._init_video_host()
+        if self.pc_player.available:
+            self.engine.use_embedded_player = True
+            self.engine.local_player_hook = self._pc_player_hook_threadsafe
+            self.engine.log(f"Embedded HW-accelerated PC player ready (libVLC {self.pc_player.version}).")
+        else:
+            self.engine.log("VLC not found — using legacy FFmpeg preview. Install VLC (64-bit) for smooth PC playback.")
         self.root.bind("<F11>", lambda e: self.on_toggle_fullscreen())
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -536,6 +553,7 @@ class NVRCastDesktopApp:
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
         self.preview_canvas.bind("<Double-1>", lambda e: self.on_toggle_fullscreen())
         self._draw_initial_preview_canvas()
+        self._preview_wrap = canvas_wrap
 
         # 3. Stream Health & Diagnostic Banner
         self.health_frame = tk.Frame(
@@ -817,6 +835,84 @@ class NVRCastDesktopApp:
         elif not self.engine.preview_enabled:
             self.on_toggle_preview()
 
+    # =========================================================================
+    # EMBEDDED HW PC PLAYER (libVLC) — one native video surface that moves between
+    # Studio, PiP and Full Screen without restarting or re-buffering the stream.
+    # =========================================================================
+    def _init_video_host(self):
+        if not self.pc_player.available:
+            return
+        self.video_host = tk.Frame(self._preview_wrap, bg="#000000", highlightthickness=0, bd=0)
+        self.video_host.place(x=0, y=0, relwidth=1, relheight=1)
+        self.root.update_idletasks()
+        self._video_host_home = (
+            self._preview_wrap.winfo_id(),
+            self.video_host.winfo_x(),
+            self.video_host.winfo_y(),
+            max(self.PREVIEW_W, self.video_host.winfo_width()),
+            max(self.PREVIEW_H, self.video_host.winfo_height()),
+        )
+        self.pc_player.attach(self.video_host.winfo_id())
+        self._set_video_host_visible(False)
+
+    def _set_video_host_visible(self, visible: bool):
+        if self.video_host is None:
+            return
+        import ctypes
+        ctypes.windll.user32.ShowWindow(self.video_host.winfo_id(), 8 if visible else 0)  # SW_SHOWNA / SW_HIDE
+        self._video_host_visible = bool(visible)
+
+    def _move_video_host(self, surface: str, target_widget=None):
+        """Reparents the native video surface into the Studio frame, PiP canvas, or Full-Screen canvas."""
+        if self.video_host is None:
+            return
+        hwnd = self.video_host.winfo_id()
+        if surface == "studio" or target_widget is None:
+            parent, x, y, w, h = self._video_host_home
+            import ctypes
+            ctypes.windll.user32.SetParent(hwnd, parent)
+            ctypes.windll.user32.MoveWindow(hwnd, x, y, w, h, True)
+            self._video_surface = "studio"
+            return
+        target_widget.update_idletasks()
+        reparent_window(hwnd, target_widget.winfo_id(), target_widget.winfo_width(), target_widget.winfo_height())
+        target_widget.bind(
+            "<Configure>",
+            lambda e: resize_window(hwnd, e.width, e.height) if self._video_surface == surface else None,
+        )
+        self._video_surface = surface
+
+    def _pc_player_hook_threadsafe(self, action: str, payload: dict):
+        # Engine worker threads call this; libVLC + Win32 calls are done on the Tk thread in FIFO order.
+        try:
+            self.root.after(0, lambda: self._pc_player_apply(action, payload))
+        except Exception:
+            pass
+
+    def _pc_player_apply(self, action: str, payload: dict):
+        if not self.pc_player.available:
+            return
+        if action == "play":
+            self.pc_player.play(
+                payload.get("url"),
+                audio_url=payload.get("audio_url"),
+                start_sec=payload.get("start_sec", 0),
+                referrer=payload.get("referrer", ""),
+                is_live=payload.get("is_live", False),
+                loop=payload.get("loop", False),
+                title=payload.get("title", ""),
+                muted=not self.engine.local_audio_enabled,
+            )
+            # Surface stays hidden (diagnostic card visible) until the first real frame is displayed.
+            self._set_video_host_visible(False)
+        elif action == "stop":
+            self.pc_player.stop()
+            self._set_video_host_visible(False)
+            self._last_pil_frame = None
+            self.engine.pc_player_stats = {}
+        elif action == "mute":
+            self.pc_player.set_muted(payload.get("muted", True))
+
     def on_toggle_pip(self):
         """Toggles the Always-On-Top Floating Picture-in-Picture (PiP) Mini Player."""
         if self.pip_win is not None and self.pip_win.winfo_exists():
@@ -941,6 +1037,7 @@ class NVRCastDesktopApp:
         self.pip_canvas.bind("<Double-1>", lambda e: self.on_toggle_fullscreen())
 
         pip.protocol("WM_DELETE_WINDOW", lambda: self.on_close_pip(restore_studio=True))
+        self._move_video_host("pip", self.pip_canvas)
 
         # Minimize main Studio window so the floating PiP stays clean over your desktop
         self.root.iconify()
@@ -948,6 +1045,8 @@ class NVRCastDesktopApp:
         self.engine.log("Opened Floating Picture-in-Picture (PiP) Mini Player (Always-On-Top).")
 
     def on_close_pip(self, restore_studio: bool = True):
+        if self._video_surface == "pip":
+            self._move_video_host("studio")  # must happen before the PiP window (its parent) is destroyed
         if self.pip_win is not None:
             try:
                 self.pip_win.destroy()
@@ -1061,11 +1160,14 @@ class NVRCastDesktopApp:
         fs.bind("<Up>", lambda e: self.engine.step_gallery_slide(-1))
         fs.bind("<Down>", lambda e: self.engine.step_gallery_slide(1))
         fs.focus_force()
+        self._move_video_host("fs", self.fs_canvas)
 
         self._last_preview_bytes = None
         self.engine.log("Entered Full-Screen TV Mode (Press Esc, F11, or Double-Click to exit).")
 
     def on_close_fullscreen(self, restore_studio: bool = True):
+        if self._video_surface == "fs":
+            self._move_video_host("studio")  # must happen before the Full-Screen window is destroyed
         if self.fs_win is not None:
             try:
                 self.fs_win.destroy()
@@ -2069,8 +2171,27 @@ class NVRCastDesktopApp:
             pip_alive = self.pip_win is not None and self.pip_win.winfo_exists() and self.pip_canvas is not None
             fs_alive = self.fs_win is not None and self.fs_win.winfo_exists() and self.fs_canvas is not None
 
-            # 1. Smooth 25 FPS (40ms) Video Presentation from Pre-Decoded Jitter Buffer
-            if self.engine.preview_enabled and Image is not None and ImageTk is not None:
+            # 0. Embedded HW player: reveal the native video surface once real frames are on screen
+            pc_active = self.pc_player.available and self.pc_player.active
+            if pc_active and (time.perf_counter() - self._pc_last_stats_ts) >= 0.25:
+                self._pc_last_stats_ts = time.perf_counter()
+                self._pc_stats = self.pc_player.stats()
+                self.engine.pc_player_stats = dict(
+                    self._pc_stats, state=self.pc_player.state_name(), visible=self._video_host_visible,
+                    surface=self._video_surface,
+                )
+                if self._pc_stats.get("showing_video") and not self._video_host_visible:
+                    self._set_video_host_visible(True)
+            elif not pc_active and self._video_host_visible:
+                self._set_video_host_visible(False)
+
+            # 1. Legacy path: present newest pre-decoded FFmpeg frame (skipped while HW player is visible)
+            if (
+                self.engine.preview_enabled
+                and Image is not None
+                and ImageTk is not None
+                and not self._video_host_visible
+            ):
                 im_rgb, is_new = self.engine.get_next_preview_frame()
                 if im_rgb is None:
                     im_rgb = self._last_pil_frame
@@ -2195,6 +2316,14 @@ class NVRCastDesktopApp:
                     )
                 elif h_state == "LIVE":
                     badge_lbl = " ● PLAYING IN APP " if out_mode == "local_only" else " ● LIVE STREAMING "
+                    if pc_active and self._video_host_visible:
+                        ps = self._pc_stats
+                        h_diag = (
+                            f"PC Player (HW): {ps.get('fps', 0):.1f} fps shown • "
+                            f"dropped {ps.get('lost', 0)} • audio gaps {ps.get('lost_audio', 0)}"
+                        )
+                    elif pc_active:
+                        h_diag = "PC Player buffering first frames..."
                     self._style_health_banner(
                         bg="#ecfdf5",
                         border="#6ee7b7",
@@ -2716,5 +2845,10 @@ class NVRCastDesktopApp:
             self._refresh_tv_channel_tree()
 
     def on_close(self):
+        self.engine.local_player_hook = None
+        try:
+            self.pc_player.stop()
+        except Exception:
+            pass
         self.engine.shutdown()
         self.root.destroy()
