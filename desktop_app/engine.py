@@ -1090,6 +1090,15 @@ class NVRCastEngine:
                                 self.decoded_frames += 1
                                 self.last_frame_ts = time.time()
                                 self.stream_health = "PAUSED"
+                            elif tag == "BrowserCast":
+                                # Direct Chrome frames feed _preview_frame_queue in push_browser_frame with 0ms latency;
+                                # only use FFmpeg's pipe:1 frame for the initial connecting splash before frame #1 arrives.
+                                if self.decoded_frames == 0:
+                                    with self._preview_lock:
+                                        self._latest_preview_jpeg = jpg
+                                        if pil_frame is not None:
+                                            self._latest_preview_pil = pil_frame
+                                            self._preview_frame_queue.append(pil_frame)
                             else:
                                 with self._preview_lock:
                                     self._latest_preview_jpeg = jpg
@@ -3756,6 +3765,16 @@ paths:
                     raw_rgb = im_rgb.tobytes()
                 with self._browser_frame_lock:
                     self._browser_latest_frame = raw_rgb
+                with self._preview_lock:
+                    self._latest_preview_jpeg = jpeg_bytes
+                    self._latest_preview_pil = im_rgb
+                    self._preview_frame_queue.append(im_rgb)
+                self.decoded_frames += 1
+                self.last_frame_ts = time.time()
+                self.stream_health = "PAUSED" if self.is_paused else "LIVE"
+                self.stream_diag = (
+                    f"{'PAUSED' if self.is_paused else 'LIVE'} Chrome Video • {self.current_title[:34]} • Frame #{self.decoded_frames}"
+                )
             except Exception:
                 pass
 

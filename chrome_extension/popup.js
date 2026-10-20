@@ -10,6 +10,8 @@ const pauseBtnLabel = document.getElementById("pauseBtnLabel");
 const toastMsg = document.getElementById("toastMsg");
 
 let toastTimer = null;
+let cachedActiveTab = null;
+
 function showToast(text, isError = false) {
   if (!toastMsg) return;
   toastMsg.textContent = text;
@@ -28,6 +30,22 @@ function showToast(text, isError = false) {
     toastMsg.style.display = "none";
   }, 3200);
 }
+
+function getActiveTabSafe(cb) {
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      void chrome.runtime.lastError;
+      const t = tabs && tabs[0] ? tabs[0] : null;
+      if (t) cachedActiveTab = t;
+      cb(t);
+    });
+  } catch (_) {
+    cb(cachedActiveTab);
+  }
+}
+
+// Pre-cache active tab on popup open so user click gestures can execute immediately without async delay
+getActiveTabSafe(() => {});
 
 chrome.storage.local.get(["hubUrl"], (res) => {
   void chrome.runtime.lastError;
@@ -57,7 +75,7 @@ function getHub() {
 }
 
 /**
- * Safe API helper that routes through background.js (with direct fallback) and NEVER throws uncaught Promise rejections.
+ * Safe API helper that routes through background.js and NEVER throws uncaught Promise rejections.
  */
 async function hubRequest(path, method = "GET", body = null) {
   return new Promise((resolve) => {
@@ -81,7 +99,7 @@ async function hubRequest(path, method = "GET", body = null) {
 
 /**
  * Safely sends a message to an active http/https tab. If the tab was opened BEFORE the extension
- * was loaded, automatically injects content_youtube.js on demand so "Receiving end does not exist" NEVER happens.
+ * was loaded, automatically injects content_youtube.js into all frames and retries once.
  */
 function sendToTabSafe(tab, payload, callback) {
   if (!tab || !tab.id || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
@@ -92,20 +110,20 @@ function sendToTabSafe(tab, payload, callback) {
   try {
     chrome.tabs.sendMessage(tab.id, payload, (resp) => {
       const err = chrome.runtime.lastError;
-      if (!err) {
-        if (callback) callback(resp || { ok: true });
+      if (!err && resp && resp.ok) {
+        if (callback) callback(resp);
         return;
       }
-      // Inject content_youtube.js into the already-open tab and retry once
+      // Inject content_youtube.js into all frames of the already-open tab and retry once
       try {
         chrome.scripting.executeScript(
-          { target: { tabId: tab.id }, files: ["content_youtube.js"] },
+          { target: { tabId: tab.id, allFrames: true }, files: ["content_youtube.js"] },
           () => {
             void chrome.runtime.lastError;
             try {
               chrome.tabs.sendMessage(tab.id, payload, (resp2) => {
                 void chrome.runtime.lastError;
-                if (callback) callback(resp2 || { ok: true });
+                if (callback) callback(resp2 || { ok: false });
               });
             } catch (_) {
               if (callback) callback({ ok: false });
@@ -121,15 +139,48 @@ function sendToTabSafe(tab, payload, callback) {
   }
 }
 
-function getActiveTabSafe(cb) {
-  try {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      void chrome.runtime.lastError;
-      cb(tabs && tabs[0] ? tabs[0] : null);
-    });
-  } catch (_) {
-    cb(null);
+function triggerTabPipImmediate(tab) {
+  if (!tab || !tab.id || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
+    return;
   }
+  try {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: tab.id, allFrames: true },
+        world: "MAIN",
+        func: () => {
+          const vids = Array.from(document.querySelectorAll("video"));
+          if (!vids.length) return false;
+          let best = vids[0];
+          let bestScore = -1;
+          for (const v of vids) {
+            const area = (v.videoWidth || v.clientWidth || 1) * (v.videoHeight || v.clientHeight || 1);
+            const playingBonus = !v.paused && v.readyState >= 2 ? 10000000 : 0;
+            const readyBonus = v.readyState >= 1 ? 100000 : 0;
+            const score = area + playingBonus + readyBonus;
+            if (score > bestScore) {
+              bestScore = score;
+              best = v;
+            }
+          }
+          if (best && best.readyState >= 1) {
+            try {
+              best.removeAttribute("disablePictureInPicture");
+              best.disablePictureInPicture = false;
+              if (document.pictureInPictureElement !== best && typeof best.requestPictureInPicture === "function") {
+                best.requestPictureInPicture().catch(() => {});
+                return true;
+              }
+            } catch (_) {}
+          }
+          return false;
+        },
+      },
+      () => {
+        void chrome.runtime.lastError;
+      }
+    );
+  } catch (_) {}
 }
 
 async function refreshStatus() {
@@ -228,49 +279,67 @@ const btnSeekFwd = document.getElementById("btnSeekFwd");
 if (btnSeekFwd) btnSeekFwd.addEventListener("click", () => sendSeekDelta(10));
 
 function castLiveTabStream(activatePip = true) {
+  // Trigger Picture-in-Picture synchronously on the cached tab while user activation is active
+  if (activatePip && cachedActiveTab) {
+    triggerTabPipImmediate(cachedActiveTab);
+  }
+
   getActiveTabSafe((tab) => {
     if (!tab || !tab.url || (!tab.url.startsWith("http://") && !tab.url.startsWith("https://"))) {
       showToast("Open a web video tab first to cast it.", true);
       return;
     }
 
-    const loop = chkLoop ? chkLoop.checked : false;
-    showToast("Starting live Chrome video stream to NVR...");
+    if (activatePip && (!cachedActiveTab || cachedActiveTab.id !== tab.id)) {
+      triggerTabPipImmediate(tab);
+    }
 
-    sendToTabSafe(
-      tab,
+    const loop = chkLoop ? chkLoop.checked : false;
+    const sessionId = `chrome_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const cleanTitle = (tab.title || "Live Chrome Video Stream")
+      .replace(/^\(\d+\)\s*/, "")
+      .replace(/\s*-\s*YouTube$/i, "")
+      .trim();
+
+    showToast(activatePip ? "Starting PiP Video Stream to NVR..." : "Starting live Chrome video stream to NVR...");
+
+    // Start the NVR Cast Hub session + offscreen tabCapture lock (with automatic hybrid frame pumping)
+    chrome.runtime.sendMessage(
       {
-        action: "startDirectLiveCast",
-        activatePip,
+        action: "startLiveVideoStream",
+        tabId: tab.id,
+        session_id: sessionId,
+        label: cleanTitle || "Live Chrome Video Stream",
+        url: tab.url,
         loop,
+        acquireTabLock: true,
+        pumpTabFrames: true,
+        source: activatePip ? "Chrome Extension (PiP Stream)" : "Chrome Extension (Live Tab)",
       },
-      (res) => {
-        if (res && res.ok) {
-          showToast("Live Chrome stream active! Continues across tab switches.");
-          setTimeout(refreshStatus, 400);
+      (bgRes) => {
+        void chrome.runtime.lastError;
+        if (!bgRes || !bgRes.ok) {
+          showToast("Could not connect to NVR Cast Hub on port 8090. Ensure the app is running.", true);
           return;
         }
-        // Fallback: if the page has no direct <video> element (e.g. iframe player or web app),
-        // capture the entire tab live via offscreen tabCapture!
-        chrome.runtime.sendMessage(
+
+        // Also attach in-page <video> frame + timeline sync using the exact same sessionId
+        sendToTabSafe(
+          tab,
           {
-            action: "startLiveVideoStream",
-            tabId: tab.id,
-            label: tab.title || "Live Chrome Tab Stream",
-            url: tab.url,
+            action: "startDirectLiveCast",
+            activatePip,
             loop,
-            acquireTabLock: true,
-            pumpTabFrames: true,
-            source: "Chrome Extension (Live Tab)",
+            hubAlreadyStarted: true,
+            session_id: sessionId,
           },
-          (bgRes) => {
-            void chrome.runtime.lastError;
-            if (bgRes && bgRes.ok) {
-              showToast("Live Chrome tab stream active! Continues across tab switches.");
-            } else {
-              showToast("Could not connect to NVR Cast Hub on port 8090.", true);
-            }
-            setTimeout(refreshStatus, 400);
+          () => {
+            showToast(
+              activatePip
+                ? "PiP Video Stream active! Continues across tab switches."
+                : "Live Chrome stream active! Continues across tab switches."
+            );
+            setTimeout(refreshStatus, 350);
           }
         );
       }
@@ -281,7 +350,7 @@ function castLiveTabStream(activatePip = true) {
 // 2. Cast Current Tab Video (Direct Live Stream from Chrome Player)
 const btnCastCurrentTab = document.getElementById("btnCastCurrentTab");
 if (btnCastCurrentTab) {
-  btnCastCurrentTab.addEventListener("click", () => castLiveTabStream(true));
+  btnCastCurrentTab.addEventListener("click", () => castLiveTabStream(false));
 }
 
 // 3. PiP-Style Live Video Player Stream
@@ -364,9 +433,11 @@ if (btnStop) {
     getActiveTabSafe((tab) => {
       if (tab) sendToTabSafe(tab, { action: "stopPageVideoSync" });
     });
-    await hubRequest("/api/standby", "POST", { source: "Chrome Extension" });
-    showToast("Stopped cast — NVR returned to Standby.");
-    refreshStatus();
+    chrome.runtime.sendMessage({ action: "stopCast" }, () => {
+      void chrome.runtime.lastError;
+      showToast("Stopped cast — NVR returned to Standby.");
+      refreshStatus();
+    });
   });
 }
 

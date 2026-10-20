@@ -1,3 +1,20 @@
+let cachedHubBaseUrl = "http://127.0.0.1:8090";
+let lastDirectFrameTs = 0;
+
+// Keep cachedHubBaseUrl synchronized with storage so frame forwarding is zero-latency
+chrome.storage.local.get(["hubUrl"], (res) => {
+  void chrome.runtime.lastError;
+  if (res && res.hubUrl) {
+    cachedHubBaseUrl = res.hubUrl.trim().replace(/\/+$/, "") || "http://127.0.0.1:8090";
+  }
+});
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.hubUrl && changes.hubUrl.newValue) {
+    cachedHubBaseUrl = String(changes.hubUrl.newValue).trim().replace(/\/+$/, "") || "http://127.0.0.1:8090";
+  }
+});
+
 function getCandidateUrls(cb) {
   chrome.storage.local.get(["hubUrl"], (res) => {
     void chrome.runtime.lastError;
@@ -27,6 +44,7 @@ async function fetchFromHub(path, options = {}) {
           try {
             data = await resp.json();
           } catch (_) {}
+          cachedHubBaseUrl = base;
           resolve({ ok: resp.ok, status: data, baseUrl: base });
           return;
         } catch (err) {
@@ -49,6 +67,8 @@ async function ensureOffscreenDocument() {
       reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
       justification: "Keep active video tab rendering smoothly when switching tabs while casting to NVR.",
     });
+    // Give newly created offscreen document a brief moment to register its runtime message listener
+    await new Promise((r) => setTimeout(r, 80));
     return true;
   } catch (err) {
     if (String(err).includes("Only a single offscreen")) return true;
@@ -61,7 +81,7 @@ function injectVisibilityKeepAlive(tabId) {
   try {
     chrome.scripting.executeScript(
       {
-        target: { tabId },
+        target: { tabId, allFrames: true },
         world: "MAIN",
         func: () => {
           if (window.__nvrVisibilityPatched) return;
@@ -113,19 +133,28 @@ async function startTabCaptureLock(tabId, sessionId, hubUrl, pumpTabFrames = fal
           resolve({ ok: false, error: "Offscreen unavailable" });
           return;
         }
-        chrome.runtime.sendMessage(
-          {
-            offscreenAction: "startTabLock",
-            streamId,
-            sessionId,
-            hubUrl: hubUrl || "http://127.0.0.1:8090",
-            pumpTabFrames: Boolean(pumpTabFrames),
-          },
-          (resp) => {
-            void chrome.runtime.lastError;
-            resolve(resp || { ok: true });
+        const payload = {
+          offscreenAction: "startTabLock",
+          streamId,
+          sessionId,
+          hubUrl: hubUrl || cachedHubBaseUrl || "http://127.0.0.1:8090",
+          pumpTabFrames: Boolean(pumpTabFrames),
+          lastDirectContentFrameAt: lastDirectFrameTs,
+        };
+        chrome.runtime.sendMessage(payload, (resp) => {
+          void chrome.runtime.lastError;
+          if (resp && resp.ok) {
+            resolve(resp);
+          } else {
+            // Retry once after 100ms in case offscreen.js was still initializing
+            setTimeout(() => {
+              chrome.runtime.sendMessage(payload, (resp2) => {
+                void chrome.runtime.lastError;
+                resolve(resp2 || { ok: true });
+              });
+            }, 100);
           }
-        );
+        });
       });
     } catch (e) {
       resolve({ ok: false, error: String(e) });
@@ -150,7 +179,7 @@ function reinjectAllOpenTabs() {
         if (t && t.id) {
           try {
             chrome.scripting.executeScript(
-              { target: { tabId: t.id }, files: ["content_youtube.js"] },
+              { target: { tabId: t.id, allFrames: true }, files: ["content_youtube.js"] },
               () => {
                 void chrome.runtime.lastError;
               }
@@ -166,7 +195,6 @@ chrome.runtime.onInstalled.addListener(() => {
   reinjectAllOpenTabs();
 });
 
-// Also clean up any legacy scripts in open tabs immediately when service worker wakes
 reinjectAllOpenTabs();
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -210,7 +238,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const lockRes = await startTabCaptureLock(
           targetTabId,
           sessionId,
-          hubRes.baseUrl || "http://127.0.0.1:8090",
+          hubRes.baseUrl || cachedHubBaseUrl || "http://127.0.0.1:8090",
           Boolean(msg.pumpTabFrames)
         );
         tabLockOk = Boolean(lockRes && lockRes.ok);
@@ -220,31 +248,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "enableOffscreenPump") {
+    try {
+      chrome.runtime.sendMessage({ offscreenAction: "enablePump" }, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.action === "pushVideoFrame") {
-    getCandidateUrls(async (candidates) => {
-      const base = candidates[0] || "http://127.0.0.1:8090";
-      try {
-        const resp = await fetch(`${base}/api/browser_cast/frame`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            frame: msg.frame,
-            session_id: msg.session_id || "",
-            time_sec: msg.time_sec,
-            duration_sec: msg.duration_sec,
-            paused: msg.paused,
-            title: msg.title || "",
-          }),
-        });
+    lastDirectFrameTs = Date.now();
+    try {
+      chrome.runtime.sendMessage(
+        { offscreenAction: "noteDirectFrame", pumpTabFrames: false },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
+    } catch (_) {}
+
+    const base = cachedHubBaseUrl || "http://127.0.0.1:8090";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    fetch(`${base}/api/browser_cast/frame`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        frame: msg.frame,
+        session_id: msg.session_id || "",
+        time_sec: msg.time_sec,
+        duration_sec: msg.duration_sec,
+        paused: msg.paused,
+        title: msg.title || "",
+      }),
+      signal: controller.signal,
+    })
+      .then(async (resp) => {
+        clearTimeout(timer);
         let data = {};
         try {
           data = await resp.json();
         } catch (_) {}
         sendResponse({ ok: resp.ok, ...data });
-      } catch (_) {
+      })
+      .catch(() => {
+        clearTimeout(timer);
         sendResponse({ ok: false });
-      }
-    });
+      });
     return true;
   }
 

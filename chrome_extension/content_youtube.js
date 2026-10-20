@@ -1,5 +1,5 @@
 (function () {
-  // Clean up any previous content script instance in this tab so old listeners/timers never conflict
+  // Clean up any previous content script instance in this frame so old listeners/timers never conflict
   if (typeof window.__nvrCastCleanup === "function") {
     try {
       window.__nvrCastCleanup();
@@ -9,13 +9,14 @@
   let isCastingToNVR = false;
   let activeSessionId = "";
   let boundVideo = null;
-  let frameWorker = null;
+  let pumpTimerId = null;
   let frameInFlight = false;
+  let frameInFlightSince = 0;
+  let canvasTainted = false;
   let captureCanvas = null;
   let captureCtx = null;
+  let keepAliveAudioCtx = null;
   let uiPollTimer = null;
-  let directFetchBase = "http://127.0.0.1:8090";
-  let useRuntimeFallback = false;
 
   const CAST_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;flex-shrink:0;"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>`;
 
@@ -37,13 +38,13 @@
   function findBestVideoElement() {
     const vids = Array.from(document.querySelectorAll("video"));
     if (!vids.length) return null;
-    // Prefer a playing video or the largest video element on the page
     let best = vids[0];
     let bestScore = -1;
     for (const v of vids) {
       const area = (v.videoWidth || v.clientWidth || 1) * (v.videoHeight || v.clientHeight || 1);
       const playingBonus = !v.paused && v.readyState >= 2 ? 10000000 : 0;
-      const score = area + playingBonus;
+      const readyBonus = v.readyState >= 1 ? 100000 : 0;
+      const score = area + playingBonus + readyBonus;
       if (score > bestScore) {
         bestScore = score;
         best = v;
@@ -56,6 +57,44 @@
     let t = document.title || "Live Chrome Video";
     t = t.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube$/i, "").trim();
     return t || "Live Chrome Video";
+  }
+
+  function startBackgroundKeepAliveAudio() {
+    try {
+      if (keepAliveAudioCtx) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      keepAliveAudioCtx = new AC();
+      const osc = keepAliveAudioCtx.createOscillator();
+      const gain = keepAliveAudioCtx.createGain();
+      // Near-zero inaudible gain keeps Chrome's audio-tab exemption active so background tabs never throttle
+      gain.gain.value = 0.00001;
+      osc.connect(gain);
+      gain.connect(keepAliveAudioCtx.destination);
+      osc.start();
+    } catch (_) {}
+  }
+
+  function stopBackgroundKeepAliveAudio() {
+    if (keepAliveAudioCtx) {
+      try {
+        keepAliveAudioCtx.close();
+      } catch (_) {}
+      keepAliveAudioCtx = null;
+    }
+  }
+
+  function tryEnterPip(v) {
+    if (!v) return false;
+    try {
+      v.removeAttribute("disablePictureInPicture");
+      v.disablePictureInPicture = false;
+      if (document.pictureInPictureElement !== v && typeof v.requestPictureInPicture === "function") {
+        v.requestPictureInPicture().catch(() => {});
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   function updateButtonUI(btn, statusData) {
@@ -111,7 +150,6 @@
       return;
     }
     if (boundVideo && typeof res.loop === "boolean") {
-      // Do not set single-video loop if playing a YouTube playlist so YouTube auto-advances to the next track!
       const isPlaylist = window.location.search.includes("list=") || window.location.pathname.includes("/playlist");
       boundVideo.loop = isPlaylist ? false : res.loop;
     }
@@ -121,86 +159,33 @@
   }
 
   function pumpSingleFrame() {
-    if (!isCastingToNVR || frameInFlight) return;
+    if (!isCastingToNVR) return;
+    const now = Date.now();
+    if (frameInFlight) {
+      if (now - frameInFlightSince > 1500) {
+        frameInFlight = false;
+      } else {
+        return;
+      }
+    }
+
     const v = boundVideo && document.contains(boundVideo) ? boundVideo : findBestVideoElement();
     if (!v) return;
     boundVideo = v;
-
-    if (v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
-
-    if (!captureCanvas) {
-      captureCanvas = document.createElement("canvas");
-      captureCanvas.width = 1280;
-      captureCanvas.height = 720;
-      captureCtx = captureCanvas.getContext("2d", { alpha: false });
-    }
-
-    frameInFlight = true;
-    try {
-      const vw = v.videoWidth;
-      const vh = v.videoHeight;
-      captureCtx.fillStyle = "#000000";
-      captureCtx.fillRect(0, 0, 1280, 720);
-      const scale = Math.min(1280 / vw, 720 / vh);
-      const dw = Math.round(vw * scale);
-      const dh = Math.round(vh * scale);
-      const dx = Math.round((1280 - dw) / 2);
-      const dy = Math.round((720 - dh) / 2);
-      captureCtx.drawImage(v, dx, dy, dw, dh);
-    } catch (_) {
-      frameInFlight = false;
-      return;
-    }
 
     const curSec = Math.floor(v.currentTime || 0);
     const durSec = Number.isFinite(v.duration) ? Math.floor(v.duration) : 0;
     const isPaused = Boolean(v.paused);
     const cleanTitle = getCleanVideoTitle();
 
-    if (!useRuntimeFallback) {
-      captureCanvas.toBlob(
-        (jpgBlob) => {
-          if (!jpgBlob || !isCastingToNVR) {
-            frameInFlight = false;
-            return;
-          }
-          fetch(`${directFetchBase}/api/browser_cast/frame`, {
-            method: "POST",
-            headers: {
-              "X-Session-Id": activeSessionId,
-              "X-Video-Time": String(curSec),
-              "X-Video-Duration": String(durSec),
-              "X-Video-Paused": isPaused ? "1" : "0",
-              "X-Video-Title": encodeURIComponent(cleanTitle),
-            },
-            body: jpgBlob,
-          })
-            .then((r) => r.json())
-            .then((res) => {
-              handleFrameResponse(res);
-              frameInFlight = false;
-            })
-            .catch(() => {
-              // Automatically switch to background.js runtime bridge if direct fetch is blocked
-              useRuntimeFallback = true;
-              frameInFlight = false;
-            });
-        },
-        "image/jpeg",
-        0.8
-      );
-    } else {
-      let dataUrl = "";
-      try {
-        dataUrl = captureCanvas.toDataURL("image/jpeg", 0.78);
-      } catch (_) {
-        frameInFlight = false;
-        return;
-      }
+    // If the video is cross-origin tainted, offscreen tabCapture pumps the pixels while we sync timeline/commands
+    if (canvasTainted) {
+      frameInFlight = true;
+      frameInFlightSince = now;
       safeSendRuntime(
         {
           action: "pushVideoFrame",
-          frame: dataUrl,
+          frame: "",
           session_id: activeSessionId,
           time_sec: curSec,
           duration_sec: durSec,
@@ -212,45 +197,85 @@
           frameInFlight = false;
         }
       );
+      return;
     }
+
+    if (v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+
+    if (!captureCanvas) {
+      captureCanvas = document.createElement("canvas");
+      captureCanvas.width = 1280;
+      captureCanvas.height = 720;
+      captureCtx = captureCanvas.getContext("2d", { alpha: false });
+    }
+
+    frameInFlight = true;
+    frameInFlightSince = now;
+
+    let dataUrl = "";
+    try {
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      captureCtx.fillStyle = "#000000";
+      captureCtx.fillRect(0, 0, 1280, 720);
+      const scale = Math.min(1280 / vw, 720 / vh);
+      const dw = Math.round(vw * scale);
+      const dh = Math.round(vh * scale);
+      const dx = Math.round((1280 - dw) / 2);
+      const dy = Math.round((720 - dh) / 2);
+      captureCtx.drawImage(v, dx, dy, dw, dh);
+      dataUrl = captureCanvas.toDataURL("image/jpeg", 0.78);
+    } catch (_) {
+      // Cross-origin tainted video element: delegate pixel pumping to offscreen tabCapture
+      canvasTainted = true;
+      frameInFlight = false;
+      safeSendRuntime({ action: "enableOffscreenPump" });
+      return;
+    }
+
+    // Route through background.js service worker so page CSP (connect-src) and Chrome PNA never block frames
+    safeSendRuntime(
+      {
+        action: "pushVideoFrame",
+        frame: dataUrl,
+        session_id: activeSessionId,
+        time_sec: curSec,
+        duration_sec: durSec,
+        paused: isPaused,
+        title: cleanTitle,
+      },
+      (res) => {
+        handleFrameResponse(res);
+        frameInFlight = false;
+      }
+    );
   }
 
-  function startWorkerFramePump() {
-    if (frameWorker) {
-      try {
-        frameWorker.terminate();
-      } catch (_) {}
-      frameWorker = null;
+  function startFramePumpTimer() {
+    if (pumpTimerId) {
+      clearInterval(pumpTimerId);
+      pumpTimerId = null;
     }
-    try {
-      const blob = new Blob(["setInterval(() => postMessage(1), 45);"], {
-        type: "application/javascript",
-      });
-      frameWorker = new Worker(URL.createObjectURL(blob));
-      frameWorker.onmessage = pumpSingleFrame;
-    } catch (_) {
-      // Fallback if page CSP restricts blob Worker creation
-      const id = setInterval(() => {
-        if (!isCastingToNVR) {
-          clearInterval(id);
-          return;
-        }
-        pumpSingleFrame();
-      }, 45);
-      frameWorker = { terminate: () => clearInterval(id) };
-    }
+    pumpTimerId = setInterval(() => {
+      if (!isCastingToNVR) {
+        clearInterval(pumpTimerId);
+        pumpTimerId = null;
+        return;
+      }
+      pumpSingleFrame();
+    }, 42);
   }
 
   function stopLocalCaptureOnly() {
     isCastingToNVR = false;
     activeSessionId = "";
     frameInFlight = false;
-    if (frameWorker) {
-      try {
-        frameWorker.terminate();
-      } catch (_) {}
-      frameWorker = null;
+    canvasTainted = false;
+    if (pumpTimerId) {
+      clearInterval(pumpTimerId);
+      pumpTimerId = null;
     }
+    stopBackgroundKeepAliveAudio();
     if (document.pictureInPictureElement && document.pictureInPictureElement === boundVideo) {
       try {
         document.exitPictureInPicture().catch(() => {});
@@ -268,34 +293,41 @@
     }
 
     boundVideo = v;
-    const sessionId = `chrome_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    canvasTainted = false;
+    const sessionId =
+      options.sessionId || `chrome_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     activeSessionId = sessionId;
 
-    // Activate Chrome Picture-in-Picture when requested or on direct user click gesture
-    // so Chrome's hardware video decoder stays 100% active when switching tabs!
-    if (options.activatePip !== false && !document.pictureInPictureElement) {
-      try {
-        if (v.requestPictureInPicture && !v.disablePictureInPicture) {
-          v.requestPictureInPicture().catch(() => {});
-        }
-      } catch (_) {}
+    // Activate Chrome Picture-in-Picture immediately while user gesture is active
+    if (options.activatePip !== false) {
+      tryEnterPip(v);
     }
 
-    // Also register MediaSession auto-PiP handler for Chrome 120+
+    // Register MediaSession auto-PiP handler for Chrome 120+
     try {
       if (navigator.mediaSession && navigator.mediaSession.setActionHandler) {
         navigator.mediaSession.setActionHandler("enterpictureinpicture", () => {
-          if (boundVideo && boundVideo.requestPictureInPicture) {
-            boundVideo.requestPictureInPicture().catch(() => {});
-          }
+          if (boundVideo) tryEnterPip(boundVideo);
         });
       }
     } catch (_) {}
+
+    startBackgroundKeepAliveAudio();
 
     if (btn && btn.style) {
       btn.innerHTML = `${CAST_SVG}<span>Connecting...</span>`;
       btn.style.background = "#eff6ff";
       btn.style.color = "#1d4ed8";
+    }
+
+    // If popup.js already started the Hub session, start pumping frames immediately!
+    if (options.hubAlreadyStarted) {
+      isCastingToNVR = true;
+      startFramePumpTimer();
+      pumpSingleFrame();
+      const curBtn = btn || document.getElementById("nvr-cast-yt-btn");
+      if (curBtn) updateButtonUI(curBtn, null);
+      return true;
     }
 
     const cleanTitle = getCleanVideoTitle();
@@ -308,15 +340,12 @@
         loop: options.loop,
         acquireTabLock: Boolean(options.acquireTabLock),
         pumpTabFrames: false,
-        source: "Chrome Extension (Live Player)",
+        source: options.activatePip !== false ? "Chrome Extension (PiP Stream)" : "Chrome Extension (Live Player)",
       },
       (resp) => {
         if (resp && resp.ok) {
-          if (resp.baseUrl) {
-            directFetchBase = resp.baseUrl;
-          }
           isCastingToNVR = true;
-          startWorkerFramePump();
+          startFramePumpTimer();
           pumpSingleFrame();
           const curBtn = btn || document.getElementById("nvr-cast-yt-btn");
           if (curBtn) updateButtonUI(curBtn, resp.status);
@@ -385,7 +414,9 @@
       }
       startDirectLiveCast(btn, {
         activatePip: msg.activatePip !== false,
-        acquireTabLock: true,
+        acquireTabLock: Boolean(msg.acquireTabLock),
+        hubAlreadyStarted: Boolean(msg.hubAlreadyStarted),
+        sessionId: msg.session_id || "",
         loop: msg.loop,
         notifyUserOnError: false,
       });
