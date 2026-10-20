@@ -61,19 +61,9 @@ BUILTIN_TV_CHANNELS = {
             "url": "http://tvsen5.aynascope.net/willowhd/index.m3u8",
         },
         {
-            "title": "Willow Sports TV (1080p Live Cricket)",
-            "group": "Live Cricket",
-            "url": "https://d36r8jifhgsk5j.cloudfront.net/Willow_TV.m3u8",
-        },
-        {
             "title": "Ten Cricket Live",
             "group": "Live Cricket",
             "url": "http://103.151.60.162:2122/play/a0fj/index.m3u8?hls",
-        },
-        {
-            "title": "Cricket Gold HD (1080p 24/7 Cricket)",
-            "group": "Live Cricket",
-            "url": "https://streams2.sofast.tv/ptnr-yupptv/title-cricketgold/v1/master/611d79b11b77e2f571934fd80ca1413453772ac7/b2048bb8-1686-4432-aa50-647245383e0c/manifest.m3u8",
         },
         {
             "title": "PK Sports HD (Pakistan 720p)",
@@ -114,16 +104,6 @@ BUILTIN_TV_CHANNELS = {
             "title": "T Sports 7 Live",
             "group": "Live Cricket",
             "url": "https://live-us1.thaimomo.com/live-as/chtsport-1/playlist.m3u8",
-        },
-        {
-            "title": "PTV Sports HD (Pakistan IPTV)",
-            "group": "Pakistan Cricket",
-            "url": "http://103.250.28.74:8000/play/a019/index.m3u8",
-        },
-        {
-            "title": "Ten Sports Pakistan (IPTV)",
-            "group": "Pakistan Cricket",
-            "url": "http://121.91.61.106:8000/play/a04h/index.m3u8",
         },
     ],
     "youtube_cricket": [
@@ -175,24 +155,14 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://imob.dunyanews.tv/livehd/ngrp:dunyalivehd_2_all/playlist.m3u8",
         },
         {
-            "title": "Hum TV HD (Pakistan Entertainment)",
-            "group": "Pakistan TV",
-            "url": "https://g4wlkwx8l23a-hls-live.5centscdn.com/HUM/271ddf829afeece44d8732757fba1a66.sdp/playlist_dvr.m3u8",
-        },
-        {
-            "title": "Bol Entertainment HD (Pakistan)",
-            "group": "Pakistan TV",
-            "url": "https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8",
-        },
-        {
-            "title": "Discover Pakistan HD (1080p Tourism & Culture)",
-            "group": "Pakistan TV",
-            "url": "https://livecdn.live247stream.com/discoverpakistan/web/playlist.m3u8",
-        },
-        {
-            "title": "Such TV News (Pakistan Live)",
+            "title": "365 News HD (Pakistan Live)",
             "group": "Pakistan News",
-            "url": "https://video.primexsports.com/suchnews/live/playlist.m3u8",
+            "url": "https://cdn4.mjunoon.tv:8087/streamtest/140M/chunks.m3u8",
+        },
+        {
+            "title": "Capital TV News (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://cdn4.mjunoon.tv:8087/streamtest/111M/chunks.m3u8",
         },
         {
             "title": "Lahore News HD (Pakistan)",
@@ -200,9 +170,29 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://vcdn.dunyanews.tv/lahorelive/ngrp:lnews_1_all/playlist.m3u8",
         },
         {
-            "title": "Madani Channel Urdu HD (Pakistan)",
+            "title": "M News HD (1080p Pakistan)",
+            "group": "Pakistan News",
+            "url": "https://cdn.rabta.stream/M-News/index.m3u8",
+        },
+        {
+            "title": "Such TV News (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://video.primexsports.com/suchnews/live/playlist.m3u8",
+        },
+        {
+            "title": "Bol Entertainment HD (Pakistan)",
             "group": "Pakistan TV",
-            "url": "https://streaming.madanichannel.tv/static/streaming-playlists/hls/b9790f10-cb0d-4e30-82bf-84a756234e58/master.m3u8",
+            "url": "https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8",
+        },
+        {
+            "title": "8XM Music TV (Pakistan)",
+            "group": "Pakistan Music",
+            "url": "https://cdn4.mjunoon.tv:8087/streamtest/131M/chunks.m3u8",
+        },
+        {
+            "title": "ABN Urdu (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://mediaserver.abnvideos.com/streams/abnurdu.m3u8",
         },
         {
             "title": "ARY News Official (YouTube Live)",
@@ -235,21 +225,6 @@ BUILTIN_TV_CHANNELS = {
             "title": "ESPNU HD (720p College & World Sports)",
             "group": "Global Sports",
             "url": "http://85.237.89.160:9590/usa-s/ESPN-U-HD/index.m3u8",
-        },
-        {
-            "title": "Eurosport 1 HD (1080p Live Sports)",
-            "group": "Global Sports",
-            "url": "http://57.128.210.196:8080/264/index.m3u8",
-        },
-        {
-            "title": "Red Bull TV HD (1080p Motorsports & Action)",
-            "group": "Global Sports",
-            "url": "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8",
-        },
-        {
-            "title": "Tennis Channel HD (1080p Live Tennis)",
-            "group": "Global Sports",
-            "url": "https://cdn-ue1-prod.tsv2.amagi.tv/linear/amg01444-tennischannelth-tennischannelnl-samsungnl/playlist.m3u8",
         },
         {
             "title": "Tennis Channel 2 HD (Live Tennis)",
@@ -447,6 +422,18 @@ class NVRCastEngine:
         self.tv_custom_m3u = ""
         self.tv_channels = list(BUILTIN_TV_CHANNELS["cricket_pk"])
         self.tv_active_index = 0
+        self.auto_skip_offline = False
+
+        # Live Preview & Transparent Stream Health Telemetry
+        self.preview_enabled = True
+        self._latest_preview_jpeg = b""
+        self._preview_lock = threading.Lock()
+        self.stream_health = "STANDBY"       # STANDBY, PROBING, CONNECTING, LIVE, STALLED, PAUSED, ERROR
+        self.stream_diag = "RTSP Server Online — Ready to Cast"
+        self.stream_error_msg = ""
+        self._last_ffmpeg_err = ""
+        self.decoded_frames = 0
+        self.last_frame_ts = 0.0
 
         # Gallery Slideshow State
         self.gallery_folder = ""
@@ -476,29 +463,200 @@ class NVRCastEngine:
         timestamp = time.strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] {msg}")
 
+    def _set_diagnostic_preview_frame(
+        self,
+        badge: str,
+        title: str,
+        subtitle: str,
+        accent_rgb: tuple = (37, 99, 235),
+    ):
+        """Renders a clean 480x270 diagnostic card into _latest_preview_jpeg during PROBING, CONNECTING, or ERROR."""
+        if Image is None:
+            return
+        try:
+            im = Image.new("RGB", (480, 270), (15, 23, 42))
+            draw = ImageDraw.Draw(im)
+            draw.rectangle([(24, 24), (456, 246)], fill=(30, 41, 59), outline=(51, 65, 85), width=1)
+            draw.rectangle([(24, 24), (456, 30)], fill=accent_rgb)
+            try:
+                f_badge = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 15)
+                f_title = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 17)
+                f_sub = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 13)
+            except Exception:
+                f_badge = f_title = f_sub = ImageFont.load_default()
+
+            draw.text((44, 52), badge[:48], fill=accent_rgb, font=f_badge)
+            draw.text((44, 92), (title or "Stream")[:44], fill=(248, 250, 252), font=f_title)
+            # Wrap subtitle across 2 lines if needed
+            sub1 = (subtitle or "")[:58]
+            sub2 = (subtitle or "")[58:116]
+            draw.text((44, 134), sub1, fill=(148, 163, 184), font=f_sub)
+            if sub2:
+                draw.text((44, 156), sub2, fill=(148, 163, 184), font=f_sub)
+            draw.text((44, 206), f"RTSP Output: rtsp://{self.lan_ip}:{self.rtsp_port}/main", fill=(100, 116, 139), font=f_sub)
+
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=82)
+            with self._preview_lock:
+                self._latest_preview_jpeg = buf.getvalue()
+        except Exception:
+            pass
+
+    def get_preview_jpeg(self) -> bytes:
+        with self._preview_lock:
+            return self._latest_preview_jpeg
+
     def _attach_ffmpeg_log_drainer(self, proc: subprocess.Popen, tag: str = "FFmpeg"):
         """
-        Continuously drains proc.stdout in a background daemon thread so the OS pipe buffer
-        can NEVER fill up and deadlock rawvideo/stdin streaming.
+        Drains both:
+          1. proc.stdout (pipe:1): 5fps 480x270 MJPEG preview frames emitted directly by FFmpeg
+          2. proc.stderr (pipe:2): FFmpeg error/diagnostic logs
+        Ensures OS pipes NEVER block and provides 100% accurate live frame telemetry.
         """
-        if not proc or not proc.stdout:
+        if not proc:
             return
+        proc_gen = self._cast_gen
 
-        def _drain():
+        if proc.stdout:
+            def _drain_stdout_mjpeg():
+                buf = bytearray()
+                try:
+                    while True:
+                        chunk = proc.stdout.read(8192)
+                        if not chunk:
+                            break
+                        buf.extend(chunk)
+                        while True:
+                            soi = buf.find(b"\xff\xd8")
+                            if soi < 0:
+                                buf.clear()
+                                break
+                            eoi = buf.find(b"\xff\xd9", soi + 2)
+                            if eoi < 0:
+                                if soi > 0:
+                                    del buf[:soi]
+                                break
+                            jpg = bytes(buf[soi : eoi + 2])
+                            del buf[: eoi + 2]
+                            # Ignore frames from a superseded process or when a newer cast generation has started
+                            if proc != self.ffmpeg_proc or (tag != "Standby" and proc_gen != self._cast_gen):
+                                continue
+                            if tag == "Standby":
+                                if self.stream_health not in ("ERROR", "PROBING", "CONNECTING"):
+                                    with self._preview_lock:
+                                        self._latest_preview_jpeg = jpg
+                                    self.decoded_frames += 1
+                                    self.last_frame_ts = time.time()
+                                    self.stream_health = "STANDBY"
+                                    self.stream_diag = "Standby Feed Ready • Waiting for Cast"
+                            elif tag == "PausedHold":
+                                with self._preview_lock:
+                                    self._latest_preview_jpeg = jpg
+                                self.decoded_frames += 1
+                                self.last_frame_ts = time.time()
+                                self.stream_health = "PAUSED"
+                            else:
+                                with self._preview_lock:
+                                    self._latest_preview_jpeg = jpg
+                                self.decoded_frames += 1
+                                self.last_frame_ts = time.time()
+                                self.stream_health = "LIVE"
+                                self.stream_diag = (
+                                    f"LIVE • {self.fps} FPS • Frame #{self.decoded_frames}"
+                                )
+                except Exception:
+                    pass
+
+            threading.Thread(target=_drain_stdout_mjpeg, daemon=True).start()
+
+        err_pipe = proc.stderr
+        if err_pipe:
+            def _drain_stderr():
+                try:
+                    for raw_line in iter(err_pipe.readline, b""):
+                        if not raw_line:
+                            break
+                        if isinstance(raw_line, bytes):
+                            line_str = raw_line.decode("utf-8", errors="ignore").strip()
+                        else:
+                            line_str = str(raw_line).strip()
+                        if not line_str:
+                            continue
+                        low = line_str.lower()
+                        if any(
+                            k in low
+                            for k in (
+                                "error",
+                                "invalid",
+                                "403 forbidden",
+                                "404 not found",
+                                "timed out",
+                                "connection refused",
+                                "server returned",
+                            )
+                        ):
+                            # Ignore benign h264 reorder/mmco warnings on live MPEG-TS streams
+                            if any(
+                                benign in low
+                                for benign in (
+                                    "non-existing pps",
+                                    "mmco: unref",
+                                    "reference picture missing",
+                                    "corrupt decoded frame",
+                                    "packet corrupt",
+                                    "corrupt input packet",
+                                )
+                            ):
+                                continue
+                            self._last_ffmpeg_err = line_str
+                            self.log(f"[{tag}] {line_str}")
+                except Exception:
+                    pass
+
+            threading.Thread(target=_drain_stderr, daemon=True).start()
+
+    def test_channel_link(self, url: str, title: str = "", referrer: str = "") -> dict:
+        """Tests whether a stream URL actually connects and decodes a video frame within 6 seconds."""
+        url = (url or "").strip()
+        if not url:
+            return {"ok": False, "message": "Empty URL"}
+        t0 = time.perf_counter()
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
             try:
-                for raw_line in iter(proc.stdout.readline, b""):
-                    if not raw_line:
-                        break
-                    if isinstance(raw_line, bytes):
-                        line_str = raw_line.decode("utf-8", errors="ignore").strip()
-                    else:
-                        line_str = str(raw_line).strip()
-                    if line_str and ("Error" in line_str or "error" in line_str or "Invalid" in line_str):
-                        self.log(f"[{tag}] {line_str}")
-            except Exception:
-                pass
+                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "playlistend": 3}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                ms = int((time.perf_counter() - t0) * 1000)
+                t_found = (info or {}).get("title") or title or "YouTube Stream"
+                return {"ok": True, "latency_ms": ms, "message": f"ONLINE ({ms}ms) — {t_found}"}
+            except Exception as e:
+                return {"ok": False, "latency_ms": 0, "message": f"OFFLINE: {str(e)[:80]}"}
 
-        threading.Thread(target=_drain, daemon=True).start()
+        cmd = [
+            self.ffmpeg_exe,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0",
+            "-rw_timeout", "5000000",
+        ]
+        if referrer:
+            cmd += ["-headers", f"Referer: {referrer}\r\n"]
+        cmd += ["-i", url, "-frames:v", "1", "-f", "null", "-"]
+        try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=6.5, startupinfo=startupinfo)
+            ms = int((time.perf_counter() - t0) * 1000)
+            if r.returncode == 0:
+                msg = f"ONLINE & DECODING VIDEO ({ms}ms)"
+                self.log(f"[Channel Test] {title or url}: {msg}")
+                return {"ok": True, "latency_ms": ms, "message": msg}
+            err_lines = r.stderr.decode("utf-8", errors="ignore").strip().splitlines()
+            reason = err_lines[-1] if err_lines else "Stream failed to decode"
+            self.log(f"[Channel Test] {title or url}: OFFLINE ({reason})")
+            return {"ok": False, "latency_ms": ms, "message": f"OFFLINE: {reason[:90]}"}
+        except Exception:
+            self.log(f"[Channel Test] {title or url}: OFFLINE (Timed out >6.5s)")
+            return {"ok": False, "latency_ms": 6500, "message": "OFFLINE: Server timed out (>6.5s)"}
 
     def get_current_playback_sec(self) -> int:
         if self.current_mode == "BROWSER":
@@ -561,6 +719,14 @@ class NVRCastEngine:
                 "aspect_mode": self.aspect_mode,
                 "show_cursor": self.show_cursor,
                 "capture_pc_audio": self.capture_pc_audio,
+            },
+            "health": {
+                "state": self.stream_health,
+                "diag": self.stream_diag,
+                "error_msg": self.stream_error_msg,
+                "decoded_frames": self.decoded_frames,
+                "preview_enabled": self.preview_enabled,
+                "auto_skip_offline": self.auto_skip_offline,
             },
         }
 
@@ -1031,7 +1197,7 @@ paths:
             )
 
     def _build_dual_output_args(self, audio_map: str) -> list:
-        """Builds FFmpeg arguments to simultaneously push /main (HD) and /sub (SD) streams."""
+        """Builds FFmpeg arguments to simultaneously push /main (HD), /sub (SD), and 5fps MJPEG Preview on pipe:1."""
         w, h = self.main_res.split("x")
         fps = int(self.fps)
         gop = fps * 2
@@ -1040,11 +1206,13 @@ paths:
 
         main_scale = self._scale_expr(w, h)
         sub_scale = self._scale_expr("640", "360")
+        prev_scale = self._scale_expr("480", "270")
 
         filter_complex = (
-            f"[0:v]fps={fps},format=yuv420p,split=2[v1][v2];"
+            f"[0:v]fps={fps},format=yuv420p,split=3[v1][v2][v3];"
             f"[v1]{main_scale}[vmain];"
-            f"[v2]{sub_scale}[vsub]"
+            f"[v2]{sub_scale}[vsub];"
+            f"[v3]fps=5,{prev_scale},format=yuvj420p[vprev]"
         )
 
         v_main_enc = [
@@ -1081,6 +1249,14 @@ paths:
             "-sc_threshold", "0",
         ]
 
+        v_prev_enc = [
+            "-map", "[vprev]",
+            "-c:v", "mjpeg",
+            "-q:v", "6",
+            "-f", "image2pipe",
+            "pipe:1",
+        ]
+
         a_args = self._build_audio_args(audio_map)
 
         return (
@@ -1091,17 +1267,23 @@ paths:
             + v_sub_enc
             + a_args
             + ["-f", "rtsp", "-rtsp_transport", "tcp", sub_url]
+            + v_prev_enc
         )
 
-    def start_standby_stream(self, source: str = "System Standby"):
+    def start_standby_stream(self, source: str = "System Standby", preserve_error: bool = False):
         """Broadcasts an always-on Standby feed so the NVR channel never shows 'Offline'."""
         with self.stream_lock:
             self._stop_ffmpeg_locked()
-            self.current_mode = "STANDBY"
-            self.current_title = "Standby Screen (Ready to Cast)"
-            self.active_source = source
-            self.is_paused = False
-            self.status_cb(self.current_mode, self.current_title)
+            if not preserve_error:
+                self.current_mode = "STANDBY"
+                self.current_title = "Standby Screen (Ready to Cast)"
+                self.active_source = source
+                self.is_paused = False
+                self.stream_health = "STANDBY"
+                self.stream_diag = "Standby Feed Ready • Waiting for Cast"
+                self.stream_error_msg = ""
+                self.decoded_frames = 0
+                self.status_cb(self.current_mode, self.current_title)
 
             font_spec = "fontfile='C\\:/Windows/Fonts/arial.ttf'"
             drawtext_filter = (
@@ -1134,11 +1316,12 @@ paths:
                 cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 startupinfo=startupinfo,
             )
             self._attach_ffmpeg_log_drainer(self.ffmpeg_proc, "Standby")
-            self.log("Standby feed active on /main and /sub (NVR channel stays online).")
+            if not preserve_error:
+                self.log("Standby feed active on /main and /sub (NVR channel stays online).")
 
     def _start_paused_hold_screen(self, held_title: str):
         """Broadcasts a clean PAUSED overlay screen so the NVR stays connected while a video is paused."""
@@ -1176,9 +1359,11 @@ paths:
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             startupinfo=startupinfo,
         )
+        self.stream_health = "PAUSED"
+        self.stream_diag = f"Stream Paused @ {self.seek_offset_sec}s • {held_title[:40]}"
         self._attach_ffmpeg_log_drainer(self.ffmpeg_proc, "PausedHold")
 
     def toggle_pause(self, force_state: bool = None, source: str = None) -> bool:
@@ -1489,6 +1674,18 @@ paths:
             self.log(f"[{source}] Starting {pl_badge}stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
             self.current_url = query_or_url
             self.active_source = source
+            self.stream_health = "PROBING"
+            self.stream_error_msg = ""
+            self.decoded_frames = 0
+            self._last_ffmpeg_err = ""
+            probe_label = custom_title or query_or_url
+            self.stream_diag = f"Probing & Verifying Stream: {probe_label[:48]}..."
+            self._set_diagnostic_preview_frame(
+                "CONNECTING TO STREAM...",
+                probe_label[:54],
+                "Checking server availability & negotiating media stream...",
+                "#3b82f6",
+            )
 
             lower_q = query_or_url.lower()
             is_direct_media = any(
@@ -1511,8 +1708,8 @@ paths:
                 audio_url = None
                 is_hls = (".m3u8" in lower_q) or ("/play/" in lower_q)
 
-                # Quick 3.5s HTTP probe when stepping through multi-channel IPTV playlists so dead links skip fast
-                if in_playlist and video_url.startswith(("http://", "https://")):
+                # Quick 3.8s HTTP probe on direct HTTP streams so dead links fail transparently and fast
+                if video_url.startswith(("http://", "https://")):
                     try:
                         hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0"}
                         if item_referrer:
@@ -1521,8 +1718,22 @@ paths:
                         with urllib.request.urlopen(req, timeout=3.8) as r:
                             _ = r.read(128)
                     except Exception as probe_err:
-                        self.log(f"Channel '{title}' is offline ({probe_err}) — auto-switching to next channel...")
-                        if self.playlist_index + 1 < len(self.playlist_items):
+                        err_short = str(probe_err)[:72]
+                        self.stream_health = "ERROR"
+                        self.stream_error_msg = f"Channel '{title}' is offline or unreachable ({err_short})"
+                        self.stream_diag = self.stream_error_msg
+                        self._set_diagnostic_preview_frame(
+                            "STREAM FAILED / OFFLINE",
+                            title,
+                            f"Server error: {err_short}",
+                            "#ef4444",
+                        )
+                        self.current_mode = "ERROR"
+                        self.current_title = f"✖ OFFLINE: {title}"
+                        self.status_cb(self.current_mode, self.current_title)
+                        if in_playlist and self.auto_skip_offline and self.playlist_index + 1 < len(self.playlist_items):
+                            self.log(f"Channel '{title}' is offline ({err_short}) — Auto-Skip advancing to next channel...")
+                            time.sleep(0.8)
                             self.playlist_index += 1
                             nxt = self.playlist_items[self.playlist_index]
                             self.start_youtube_stream(
@@ -1533,6 +1744,9 @@ paths:
                                 _from_playlist=True,
                                 custom_title=nxt.get("title", ""),
                             )
+                        else:
+                            self.log(f"✖ Channel '{title}' failed: {err_short}")
+                            threading.Thread(target=self.start_standby_stream, kwargs={"preserve_error": True}, daemon=True).start()
                         return
             else:
                 self.status_cb("LOADING", f"Loading {pl_badge}: {(custom_title or query_or_url)[:40]}...")
@@ -1581,9 +1795,23 @@ paths:
                             "ts": time.time(),
                         }
                 except Exception as e:
-                    self.log(f"ERROR resolving video link: {e}")
-                    # If inside a playlist, automatically skip unavailable/blocked track and play next!
-                    if len(self.playlist_items) > 1 and self.playlist_index + 1 < len(self.playlist_items):
+                    err_short = str(e)[:80]
+                    self.log(f"ERROR resolving video link: {err_short}")
+                    self.stream_health = "ERROR"
+                    self.stream_error_msg = f"Failed to resolve '{probe_label[:36]}': {err_short}"
+                    self.stream_diag = self.stream_error_msg
+                    self._set_diagnostic_preview_frame(
+                        "VIDEO LINK FAILED",
+                        probe_label[:54],
+                        err_short,
+                        "#ef4444",
+                    )
+                    self.current_mode = "ERROR"
+                    self.current_title = f"✖ FAILED: {probe_label[:40]}"
+                    self.status_cb(self.current_mode, self.current_title)
+                    # If inside a playlist and auto_skip_offline is enabled, automatically skip unavailable/blocked track
+                    if len(self.playlist_items) > 1 and self.auto_skip_offline and self.playlist_index + 1 < len(self.playlist_items):
+                        time.sleep(0.8)
                         self.playlist_index += 1
                         nxt = self.playlist_items[self.playlist_index]
                         self.log(f"Skipping unavailable track — advancing to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}")
@@ -1596,7 +1824,7 @@ paths:
                             custom_title=nxt.get("title", ""),
                         )
                         return
-                    self.status_cb(self.current_mode, self.current_title)
+                    threading.Thread(target=self.start_standby_stream, kwargs={"preserve_error": True}, daemon=True).start()
                     return
 
             if my_gen != self._cast_gen:
@@ -1617,7 +1845,7 @@ paths:
                 http_net_args = [
                     "-user_agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    "-rw_timeout", "10000000",
+                    "-rw_timeout", "7000000",
                 ]
                 if item_referrer:
                     http_net_args += ["-headers", f"Referer: {item_referrer}\r\n"]
@@ -1662,6 +1890,15 @@ paths:
                 self.is_paused = False
                 self.seek_offset_sec = int(start_sec)
                 self.stream_started_at = time.time()
+                self.decoded_frames = 0
+                self.stream_health = "CONNECTING"
+                self.stream_diag = f"Buffering Video Stream: {title[:44]}..."
+                self._set_diagnostic_preview_frame(
+                    "BUFFERING VIDEO STREAM...",
+                    title[:54],
+                    "Connected to server — decoding first video frame...",
+                    "#f59e0b",
+                )
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -1671,18 +1908,75 @@ paths:
                     cmd,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "YouTube")
 
-            self.log(f"NOW STREAMING TO NVR ({source}): {display_title}")
+            # First-frame & stall watchdog so dead M3U8 segments never hang the app
+            def _stream_watchdog():
+                t_start = time.time()
+                while proc_ref.poll() is None and my_gen == self._cast_gen and not self.is_paused:
+                    time.sleep(0.3)
+                    if self.decoded_frames == 0 and (time.time() - t_start) > 8.5:
+                        self.log(f"✖ Watchdog: '{title}' delivered 0 video frames in 8.5s (Stream Offline / Dead Segments).")
+                        self.stream_health = "ERROR"
+                        self.stream_error_msg = f"Stream Offline / Timed Out: '{title}' sent no video frames (8.5s)."
+                        self.stream_diag = self.stream_error_msg
+                        self._set_diagnostic_preview_frame(
+                            "STREAM OFFLINE / TIMED OUT",
+                            title[:54],
+                            "Server sent 0 video frames within 8.5 seconds.",
+                            "#ef4444",
+                        )
+                        try:
+                            proc_ref.terminate()
+                        except Exception:
+                            pass
+                        break
+                    elif self.decoded_frames > 0 and (time.time() - self.last_frame_ts) > 10.0:
+                        self.stream_health = "STALLED"
+                        self.stream_diag = f"⚠ Stream Stalled (No new frames for {int(time.time() - self.last_frame_ts)}s)"
+
+            threading.Thread(target=_stream_watchdog, daemon=True).start()
+            self.log(f"Connecting & Buffering to NVR ({source}): {display_title}")
 
             proc_ref.wait()
             with self.stream_lock:
                 if self.ffmpeg_proc == proc_ref and self.running and not self.is_paused and my_gen == self._cast_gen:
-                    if len(self.playlist_items) > 1:
+                    failed_before_first_frame = (self.decoded_frames == 0)
+                    if failed_before_first_frame:
+                        reason = self._last_ffmpeg_err or self.stream_error_msg or "Stream offline, geoblocked, or corrupt media segments."
+                        self.stream_health = "ERROR"
+                        self.stream_error_msg = f"Stream Failed ({title[:34]}): {reason[:80]}"
+                        self.stream_diag = self.stream_error_msg
+                        self._set_diagnostic_preview_frame(
+                            "STREAM FAILED / OFFLINE",
+                            title[:54],
+                            reason[:78],
+                            "#ef4444",
+                        )
+                        self.current_mode = "ERROR"
+                        self.current_title = f"✖ FAILED: {title}"
+                        self.status_cb(self.current_mode, self.current_title)
+                        self.log(f"✖ Stream Failed ('{title}'): {reason[:90]}")
+
+                        if len(self.playlist_items) > 1 and self.auto_skip_offline and self.playlist_index + 1 < len(self.playlist_items):
+                            self.playlist_index += 1
+                            nxt = self.playlist_items[self.playlist_index]
+                            self.log(
+                                f"Auto-Skip Offline enabled — advancing to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}"
+                            )
+                            threading.Thread(
+                                target=self.start_youtube_stream,
+                                args=(nxt["url"], 0, self.loop_video, source, True, nxt.get("title", "")),
+                                daemon=True,
+                            ).start()
+                        else:
+                            # Keep RTSP server alive for NVR while preserving the visible ERROR diagnostic in the GUI
+                            threading.Thread(target=self.start_standby_stream, kwargs={"preserve_error": True}, daemon=True).start()
+                    elif len(self.playlist_items) > 1:
                         if self.playlist_index + 1 < len(self.playlist_items):
                             self.playlist_index += 1
                             nxt = self.playlist_items[self.playlist_index]
@@ -1765,6 +2059,10 @@ paths:
                 self.is_paused = False
                 self.seek_offset_sec = int(start_sec)
                 self.stream_started_at = time.time()
+                self.decoded_frames = 0
+                self.stream_health = "CONNECTING"
+                self.stream_error_msg = ""
+                self.stream_diag = f"Loading Local Video: {title}"
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -1773,7 +2071,7 @@ paths:
                     cmd,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     startupinfo=startupinfo,
                 )
                 proc_ref = self.ffmpeg_proc
@@ -1969,6 +2267,10 @@ paths:
                 self.current_mode = "GALLERY"
                 self.active_source = source
                 self.is_paused = False
+                self.decoded_frames = 0
+                self.stream_health = "LIVE"
+                self.stream_error_msg = ""
+                self.stream_diag = f"Photo Gallery Active • {total_imgs} slide(s)"
                 self.current_title = f"Gallery [1/{total_imgs}]: {os.path.basename(first_file)}"
                 self.status_cb(self.current_mode, self.current_title)
 
@@ -1978,7 +2280,7 @@ paths:
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     bufsize=out_w * out_h * 4 * 2,
                     startupinfo=startupinfo,
                 )
@@ -2259,6 +2561,10 @@ paths:
                 self.current_title = f"PC Desktop: {desc}"
                 self.active_source = source
                 self.is_paused = False
+                self.decoded_frames = 0
+                self.stream_health = "LIVE"
+                self.stream_error_msg = ""
+                self.stream_diag = f"Desktop Mirroring Active • {desc}"
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -2267,7 +2573,7 @@ paths:
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     bufsize=cap_w * cap_h * 4 * 2,
                     startupinfo=startupinfo,
                 )
@@ -2374,6 +2680,10 @@ paths:
                 if url:
                     self.current_url = url
                 self.active_source = source
+                self.decoded_frames = 0
+                self.stream_health = "LIVE"
+                self.stream_error_msg = ""
+                self.stream_diag = f"Live Chrome Video • {label[:40]}"
                 self.status_cb(self.current_mode, self.current_title)
 
                 audio_info = self._start_wasapi_audio_tcp_feeder(stop_evt)
@@ -2414,7 +2724,7 @@ paths:
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     bufsize=out_w * out_h * 3 * 2,
                     startupinfo=startupinfo,
                 )

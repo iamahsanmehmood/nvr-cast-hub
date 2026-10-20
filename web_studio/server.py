@@ -50,6 +50,21 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(payload).encode("utf-8"))
             return
 
+        if self.path.startswith("/api/preview.jpg"):
+            jpg = self.engine.get_preview_jpeg()
+            if jpg:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(jpg)
+            else:
+                self.send_response(204)
+                self._send_cors_headers()
+                self.end_headers()
+            return
+
         if self.path.startswith("/api/live_tv"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -396,37 +411,48 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
     </div>
   </div>
 
-  <!-- Unified Active Session Bar -->
-  <div class="session-bar">
-    <div class="session-info">
-      <div class="session-meta">
-        <span class="mode-badge" id="modeTxt">{self.engine.current_mode}</span>
-        <span>Started By: <strong id="sourceTxt" style="color:#0f172a;">{self.engine.active_source}</strong></span>
+  <!-- Unified Active Session Bar + Live NVR Preview Monitor -->
+  <div class="session-bar" style="align-items:stretch;">
+    <div style="display:flex;flex-direction:column;gap:6px;width:280px;flex-shrink:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:0.3px;">● LIVE NVR OUTPUT PREVIEW</span>
+        <button class="btn-secondary" id="btnToggleWebPreview" style="padding:2px 8px;font-size:11px;" onclick="toggleWebPreview()">⏸ Stop Preview</button>
       </div>
-      <div class="session-title" id="titleTxt">{self.engine.current_title}</div>
-      <div class="session-pos" id="timeTxt">Stream active on NVR</div>
+      <div style="position:relative;width:280px;height:158px;background:#0f172a;border-radius:10px;overflow:hidden;border:1px solid #cbd5e1;">
+        <img id="nvrLivePreviewImg" src="/api/preview.jpg" alt="Live NVR Stream Preview" style="width:100%;height:100%;object-fit:contain;display:block;">
+        <div id="nvrPreviewPausedMsg" style="display:none;position:absolute;inset:0;background:#0f172a;color:#93c5fd;font-size:12px;font-weight:600;align-items:center;justify-content:center;text-align:center;padding:14px;">
+          ⏸ Live Preview Paused<br><span style="font-size:11px;color:#94a3b8;font-weight:400;">NVR RTSP Broadcast continues at 25 FPS</span>
+        </div>
+      </div>
     </div>
-    <div class="session-controls">
-      <button class="btn-secondary" onclick="togglePause()" id="btnPauseResume">
-        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span id="pauseBtnText">Pause / Resume</span>
-      </button>
-      <button class="btn-secondary" onclick="seekDelta(-30)" title="Rewind 30s">-30s</button>
-      <button class="btn-secondary" onclick="seekDelta(-10)" title="Rewind 10s">
-        <svg viewBox="0 0 24 24"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>
-        -10s
-      </button>
-      <button class="btn-secondary" onclick="seekDelta(10)" title="Forward 10s">
-        +10s
-        <svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
-      </button>
-      <button class="btn-secondary" onclick="seekDelta(30)" title="Forward 30s">+30s</button>
-      <button class="btn-secondary" onclick="stepGallery(-1)" title="Previous Channel / Track">Prev Ch/Track</button>
-      <button class="btn-secondary" onclick="stepGallery(1)" title="Next Channel / Track">Next Ch/Track</button>
-      <button class="btn-danger" onclick="stopCast()">
-        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-        Stop / Standby
-      </button>
+    <div class="session-info" style="display:flex;flex-direction:column;justify-content:space-between;">
+      <div>
+        <div class="session-meta">
+          <span class="mode-badge" id="modeTxt">{self.engine.current_mode}</span>
+          <span>Started By: <strong id="sourceTxt" style="color:#0f172a;">{self.engine.active_source}</strong></span>
+        </div>
+        <div class="session-title" id="titleTxt">{self.engine.current_title}</div>
+        <div class="session-pos" id="timeTxt">Stream active on NVR</div>
+      </div>
+      <div id="healthBanner" style="margin-top:8px;padding:8px 12px;border-radius:9px;background:#ecfdf5;border:1px solid #6ee7b7;font-size:12px;font-weight:600;color:#065f46;">
+        ● RTSP Server Online • Ready to Cast
+      </div>
+      <div class="session-controls" style="margin-top:10px;">
+        <button class="btn-secondary" onclick="togglePause()" id="btnPauseResume">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="pauseBtnText">Pause / Resume</span>
+        </button>
+        <button class="btn-secondary" onclick="seekDelta(-30)" title="Rewind 30s">-30s</button>
+        <button class="btn-secondary" onclick="seekDelta(-10)" title="Rewind 10s">-10s</button>
+        <button class="btn-secondary" onclick="seekDelta(10)" title="Forward 10s">+10s</button>
+        <button class="btn-secondary" onclick="seekDelta(30)" title="Forward 30s">+30s</button>
+        <button class="btn-secondary" onclick="stepGallery(-1)" title="Previous Channel / Track">⏮ Prev Ch/Track</button>
+        <button class="btn-secondary" onclick="stepGallery(1)" title="Next Channel / Track">Next Ch/Track ⏭</button>
+        <button class="btn-danger" onclick="stopCast()">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          Stop / Standby
+        </button>
+      </div>
     </div>
   </div>
 
@@ -910,13 +936,41 @@ async function startMeetingShare() {{
   }}
 }}
 
+let webPreviewEnabled = true;
+
+function toggleWebPreview() {{
+  webPreviewEnabled = !webPreviewEnabled;
+  const btn = document.getElementById('btnToggleWebPreview');
+  const img = document.getElementById('nvrLivePreviewImg');
+  const msg = document.getElementById('nvrPreviewPausedMsg');
+  if (webPreviewEnabled) {{
+    btn.textContent = '⏸ Stop Preview';
+    img.style.display = 'block';
+    msg.style.display = 'none';
+  }} else {{
+    btn.textContent = '▶ Resume Preview';
+    img.style.display = 'none';
+    msg.style.display = 'flex';
+  }}
+}}
+
+setInterval(() => {{
+  if (webPreviewEnabled) {{
+    const img = document.getElementById('nvrLivePreviewImg');
+    if (img) img.src = '/api/preview.jpg?t=' + Date.now();
+  }}
+}}, 380);
+
 async function refreshStatus() {{
   try {{
     const r = await fetch('/api/status');
     const d = await r.json();
     const modeEl = document.getElementById('modeTxt');
     modeEl.textContent = d.mode + (d.is_paused ? ' • PAUSED' : '');
-    if (d.is_paused) {{
+    if (d.mode === 'ERROR') {{
+      modeEl.style.background = '#fee2e2';
+      modeEl.style.color = '#dc2626';
+    }} else if (d.is_paused) {{
       modeEl.style.background = '#fef3c7';
       modeEl.style.color = '#b45309';
     }} else {{
@@ -927,6 +981,33 @@ async function refreshStatus() {{
     if (pauseTxt) pauseTxt.textContent = d.is_paused ? 'Resume Stream' : 'Pause Stream';
     document.getElementById('sourceTxt').textContent = d.active_source || 'System';
     document.getElementById('titleTxt').textContent = d.title;
+
+    const hb = document.getElementById('healthBanner');
+    if (hb && d.health) {{
+      const h = d.health;
+      if (h.state === 'ERROR') {{
+        hb.style.background = '#fef2f2';
+        hb.style.borderColor = '#fca5a5';
+        hb.style.color = '#b91c1c';
+        hb.textContent = '✖ STREAM FAILED / OFFLINE: ' + (h.error_msg || h.diag || 'Channel unavailable');
+      }} else if (h.state === 'PROBING' || h.state === 'CONNECTING') {{
+        hb.style.background = '#fffbeb';
+        hb.style.borderColor = '#fcd34d';
+        hb.style.color = '#92400e';
+        hb.textContent = '◔ ' + (h.diag || 'Connecting & buffering video stream...');
+      }} else if (h.state === 'STALLED') {{
+        hb.style.background = '#fffbeb';
+        hb.style.borderColor = '#fbbf24';
+        hb.style.color = '#b45309';
+        hb.textContent = h.diag || '⚠ Stream Stalled (Waiting for server packets)';
+      }} else {{
+        hb.style.background = '#ecfdf5';
+        hb.style.borderColor = '#6ee7b7';
+        hb.style.color = '#065f46';
+        hb.textContent = '● ' + (h.diag || 'Broadcasting Live to NVR');
+      }}
+    }}
+
     const tSpan = document.getElementById('timeTxt');
     if (d.mode === 'YOUTUBE' || d.mode === 'FILE' || (d.mode === 'BROWSER' && (d.playback_sec > 0 || d.duration_sec > 0))) {{
       const m = Math.floor((d.playback_sec || 0) / 60);
@@ -1191,6 +1272,18 @@ window.addEventListener('DOMContentLoaded', () => {{
                 self.engine.toggle_pause(source=source)
             if WebRemoteHandler.ui_sync_callback:
                 WebRemoteHandler.ui_sync_callback()
+
+        elif self.path == "/api/test_channel":
+            url = data.get("url", "")
+            title = data.get("title", "")
+            referrer = data.get("referrer", "")
+            res = self.engine.test_channel_link(url=url, title=title, referrer=referrer)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
 
         elif self.path == "/api/live_tv":
             action = data.get("action", "load")
