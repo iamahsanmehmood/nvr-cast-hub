@@ -195,7 +195,7 @@
     gap: 6px;
     align-items: center;
   }
-  input[type=text] {
+  input[type=text], select {
     flex: 1;
     padding: 6.5px 9px;
     border-radius: 7px;
@@ -205,7 +205,7 @@
     font-size: 11.5px;
     outline: none;
   }
-  input[type=text]:focus {
+  input[type=text]:focus, select:focus {
     border-color: #2563eb;
     background: #ffffff;
   }
@@ -308,11 +308,34 @@
       </button>
     </div>
     <div class="row">
-      <input type="text" id="customQuery" placeholder="Paste YouTube Video or Playlist URL...">
+      <input type="text" id="customQuery" placeholder="Paste YouTube Video, Playlist, or .M3U URL...">
       <label class="check-label" title="Infinite Video / Playlist Loop">
         <input type="checkbox" id="chkLoop"> Loop
       </label>
       <button class="btn-ctrl" id="btnCastCustom">Cast</button>
+    </div>
+  </div>
+
+  <!-- 2B. Live Cricket, Sports & GitHub M3U IPTV Channels -->
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+      Live Sports, Pakistan Cricket &amp; GitHub IPTV
+    </div>
+    <div class="row" style="margin-bottom:6px;">
+      <select id="selTvCat">
+        <option value="cricket_pk">🏏 Pakistan Cricket &amp; Live Sports TV</option>
+        <option value="youtube_cricket">📺 Official Cricket YouTube (Auto-Play)</option>
+        <option value="pakistan_tv">🇵🇰 Pakistan News &amp; Entertainment TV</option>
+        <option value="global_sports">🏆 Global Sports (ESPN / Eurosport / Tennis)</option>
+        <option value="iptv_sports">📡 GitHub: iptv-org Sports (480+)</option>
+        <option value="iptv_pk">📡 GitHub: iptv-org Pakistan (100+)</option>
+        <option value="curated_pk_in">📡 GitHub: Curated PK &amp; South Asia IPTV</option>
+      </select>
+    </div>
+    <div class="row">
+      <select id="selTvChannel"></select>
+      <button class="btn-ctrl" id="btnPlayTvCh" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">▶ Play</button>
     </div>
   </div>
 

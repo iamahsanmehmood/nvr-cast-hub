@@ -48,6 +48,255 @@ MEDIAMTX_YML = os.path.join(BIN_DIR, "mediamtx.yml")
 SUPPORTED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif")
 SUPPORTED_VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".ts", ".webm", ".m4v")
 
+BUILTIN_TV_CHANNELS = {
+    "cricket_pk": [
+        {
+            "title": "Geo Super HD (1080p Live Cricket & Sports)",
+            "group": "Pakistan Cricket",
+            "url": "http://116.90.120.149:8000/play/a021/index.m3u8",
+        },
+        {
+            "title": "Willow Cricket HD (720p Live Cricket)",
+            "group": "Live Cricket",
+            "url": "http://tvsen5.aynascope.net/willowhd/index.m3u8",
+        },
+        {
+            "title": "Willow Sports TV (1080p Live Cricket)",
+            "group": "Live Cricket",
+            "url": "https://d36r8jifhgsk5j.cloudfront.net/Willow_TV.m3u8",
+        },
+        {
+            "title": "Ten Cricket Live",
+            "group": "Live Cricket",
+            "url": "http://103.151.60.162:2122/play/a0fj/index.m3u8?hls",
+        },
+        {
+            "title": "Cricket Gold HD (1080p 24/7 Cricket)",
+            "group": "Live Cricket",
+            "url": "https://streams2.sofast.tv/ptnr-yupptv/title-cricketgold/v1/master/611d79b11b77e2f571934fd80ca1413453772ac7/b2048bb8-1686-4432-aa50-647245383e0c/manifest.m3u8",
+        },
+        {
+            "title": "PK Sports HD (Pakistan 720p)",
+            "group": "Pakistan Sports",
+            "url": "https://lbgo.bozztv.com/ssh101/ssh101/pksportshd/playlist.m3u8",
+        },
+        {
+            "title": "M Sports HD (Pakistan 1080p)",
+            "group": "Pakistan Sports",
+            "url": "https://cdn.rabta.stream/M-Sports/index.m3u8",
+        },
+        {
+            "title": "Sony Sports Ten 5 Live",
+            "group": "Live Cricket",
+            "url": "http://103.151.60.162:2122/play/a028/index.m3u8?hls",
+        },
+        {
+            "title": "Star Sports 2 Live",
+            "group": "Live Cricket",
+            "url": "http://103.151.60.162:2122/play/a00v/index.m3u8?hls",
+        },
+        {
+            "title": "Star Sports Select 1 HD (1080p)",
+            "group": "Live Sports",
+            "url": "http://103.151.60.162:2122/play/a026/index.m3u8?hls",
+        },
+        {
+            "title": "Star Sports Select 2 HD (1080p)",
+            "group": "Live Sports",
+            "url": "http://103.151.60.162:2122/play/a027/index.m3u8?hls",
+        },
+        {
+            "title": "DD Sports HD (1080p)",
+            "group": "Live Sports",
+            "url": "https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/b17adfe543354fdd8d189b110617cddd/index.m3u8",
+        },
+        {
+            "title": "T Sports 7 Live",
+            "group": "Live Cricket",
+            "url": "https://live-us1.thaimomo.com/live-as/chtsport-1/playlist.m3u8",
+        },
+        {
+            "title": "PTV Sports HD (Pakistan IPTV)",
+            "group": "Pakistan Cricket",
+            "url": "http://103.250.28.74:8000/play/a019/index.m3u8",
+        },
+        {
+            "title": "Ten Sports Pakistan (IPTV)",
+            "group": "Pakistan Cricket",
+            "url": "http://121.91.61.106:8000/play/a04h/index.m3u8",
+        },
+    ],
+    "youtube_cricket": [
+        {
+            "title": "Pakistan Cricket (PCB Official — Matches & Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@pakistancricket/videos",
+        },
+        {
+            "title": "Pakistan Cricket LIVE (PCB Live Domestic & Series Streams)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@pakistancricket/streams",
+        },
+        {
+            "title": "Sports Central (Pakistan Matches & PSL Official Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@SportsCentralOfficial/videos",
+        },
+        {
+            "title": "Pakistan Super League (Official PSL Videos & Matches)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@PakistanSuperLeagueOfficial/videos",
+        },
+        {
+            "title": "Asian Cricket Council (Asia Cup & Pakistan Classics)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@AsianCricketCouncilTV/videos",
+        },
+        {
+            "title": "ICC Official (World Cup & International Cricket)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@ICC/videos",
+        },
+        {
+            "title": "Willow Cricket Official YouTube (Match Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@willow/videos",
+        },
+    ],
+    "pakistan_tv": [
+        {
+            "title": "24 News HD (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://cdn4.mjunoon.tv:8087/streamtest/146M/chunks.m3u8",
+        },
+        {
+            "title": "Dunya News HD (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://imob.dunyanews.tv/livehd/ngrp:dunyalivehd_2_all/playlist.m3u8",
+        },
+        {
+            "title": "Hum TV HD (Pakistan Entertainment)",
+            "group": "Pakistan TV",
+            "url": "https://g4wlkwx8l23a-hls-live.5centscdn.com/HUM/271ddf829afeece44d8732757fba1a66.sdp/playlist_dvr.m3u8",
+        },
+        {
+            "title": "Bol Entertainment HD (Pakistan)",
+            "group": "Pakistan TV",
+            "url": "https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8",
+        },
+        {
+            "title": "Discover Pakistan HD (1080p Tourism & Culture)",
+            "group": "Pakistan TV",
+            "url": "https://livecdn.live247stream.com/discoverpakistan/web/playlist.m3u8",
+        },
+        {
+            "title": "Such TV News (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://video.primexsports.com/suchnews/live/playlist.m3u8",
+        },
+        {
+            "title": "Lahore News HD (Pakistan)",
+            "group": "Pakistan News",
+            "url": "https://vcdn.dunyanews.tv/lahorelive/ngrp:lnews_1_all/playlist.m3u8",
+        },
+        {
+            "title": "Madani Channel Urdu HD (Pakistan)",
+            "group": "Pakistan TV",
+            "url": "https://streaming.madanichannel.tv/static/streaming-playlists/hls/b9790f10-cb0d-4e30-82bf-84a756234e58/master.m3u8",
+        },
+        {
+            "title": "ARY News Official (YouTube Live)",
+            "group": "Pakistan News",
+            "url": "https://www.youtube.com/@ARYNewsTvofficial/streams",
+        },
+        {
+            "title": "Geo News Official (YouTube Live)",
+            "group": "Pakistan News",
+            "url": "https://www.youtube.com/@geonews/streams",
+        },
+        {
+            "title": "Samaa TV Official (YouTube Live)",
+            "group": "Pakistan News",
+            "url": "https://www.youtube.com/@SamaaTv/streams",
+        },
+    ],
+    "global_sports": [
+        {
+            "title": "ESPN HD (720p Live Sports)",
+            "group": "Global Sports",
+            "url": "http://85.237.89.160:9590/usa-s/ESPN-HD/index.m3u8",
+        },
+        {
+            "title": "ESPN 2 HD (720p Live Sports)",
+            "group": "Global Sports",
+            "url": "http://85.237.89.160:9590/usa-s/ESPN-2-HD/index.m3u8",
+        },
+        {
+            "title": "ESPNU HD (720p College & World Sports)",
+            "group": "Global Sports",
+            "url": "http://85.237.89.160:9590/usa-s/ESPN-U-HD/index.m3u8",
+        },
+        {
+            "title": "Eurosport 1 HD (1080p Live Sports)",
+            "group": "Global Sports",
+            "url": "http://57.128.210.196:8080/264/index.m3u8",
+        },
+        {
+            "title": "Red Bull TV HD (1080p Motorsports & Action)",
+            "group": "Global Sports",
+            "url": "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8",
+        },
+        {
+            "title": "Tennis Channel HD (1080p Live Tennis)",
+            "group": "Global Sports",
+            "url": "https://cdn-ue1-prod.tsv2.amagi.tv/linear/amg01444-tennischannelth-tennischannelnl-samsungnl/playlist.m3u8",
+        },
+        {
+            "title": "Tennis Channel 2 HD (Live Tennis)",
+            "group": "Global Sports",
+            "url": "https://mumbai-edge.smartplaytv.in/Tennis2/index.m3u8",
+        },
+        {
+            "title": "Unbeaten Sports Network (1080p 24/7 Sports)",
+            "group": "Global Sports",
+            "url": "https://d1t5afz6qed3xk.cloudfront.net/Unbeaten.m3u8",
+        },
+        {
+            "title": "30A Golf Kingdom HD (720p Golf)",
+            "group": "Global Sports",
+            "url": "https://30a-tv.com/feeds/vidaa/golf.m3u8",
+        },
+    ],
+}
+
+GITHUB_M3U_REPOS = [
+    {
+        "id": "iptv_sports",
+        "name": "iptv-org: Sports Category (480+ Global Sports Channels)",
+        "url": "https://iptv-org.github.io/iptv/categories/sports.m3u",
+    },
+    {
+        "id": "iptv_pk",
+        "name": "iptv-org: Pakistan Channels (100+ PK TV & Sports Channels)",
+        "url": "https://iptv-org.github.io/iptv/countries/pk.m3u",
+    },
+    {
+        "id": "curated_pk_in",
+        "name": "Curated Working IPTV: Pakistan & South Asia Sports/TV (Rayyan98)",
+        "url": "https://raw.githubusercontent.com/Rayyan98/my-curated-iptv/refs/heads/main/real_data/main_working.m3u",
+    },
+    {
+        "id": "freetv_global",
+        "name": "Free-TV: Global Open-Source IPTV Master List",
+        "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
+    },
+    {
+        "id": "iptv_all",
+        "name": "iptv-org: Full Global Master Index (10,000+ Channels)",
+        "url": "https://iptv-org.github.io/iptv/index.m3u",
+    },
+]
+
 
 def attach_thread_to_default_desktop() -> bool:
     """Attach the calling thread to WinSta0\\Default so screen capture works from any Windows session."""
@@ -191,6 +440,14 @@ class NVRCastEngine:
         self.playlist_index = 0
         self.playlist_title = ""
 
+        # Live TV, Pakistan Cricket & GitHub M3U IPTV State
+        self.tv_category = "cricket_pk"
+        self.tv_source_title = "Pakistan Cricket & Live Sports"
+        self.tv_filter = ""
+        self.tv_custom_m3u = ""
+        self.tv_channels = list(BUILTIN_TV_CHANNELS["cricket_pk"])
+        self.tv_active_index = 0
+
         # Gallery Slideshow State
         self.gallery_folder = ""
         self.gallery_images = []
@@ -270,6 +527,14 @@ class NVRCastEngine:
                 "count": len(self.playlist_items),
                 "index": self.playlist_index,
             },
+            "live_tv": {
+                "category": self.tv_category,
+                "source_title": self.tv_source_title,
+                "filter": self.tv_filter,
+                "custom_m3u": self.tv_custom_m3u,
+                "count": len(self.tv_channels),
+                "active_index": self.tv_active_index,
+            },
             "gallery": {
                 "folder": self.gallery_folder,
                 "count": len(self.gallery_images),
@@ -298,6 +563,213 @@ class NVRCastEngine:
                 "capture_pc_audio": self.capture_pc_audio,
             },
         }
+
+    def get_tv_catalog_dict(self) -> dict:
+        """Returns the full Live TV, Cricket & Sports channel lineup + GitHub M3U repository presets."""
+        return {
+            "category": self.tv_category,
+            "source_title": self.tv_source_title,
+            "filter": self.tv_filter,
+            "custom_m3u": self.tv_custom_m3u,
+            "active_index": self.tv_active_index,
+            "channels": self.tv_channels,
+            "github_repos": GITHUB_M3U_REPOS,
+            "builtin_categories": [
+                {"id": "cricket_pk", "name": "Pakistan Cricket & Live Sports TV"},
+                {"id": "youtube_cricket", "name": "Official Cricket YouTube Channels (Auto-Play)"},
+                {"id": "pakistan_tv", "name": "Pakistan News & Entertainment Live TV"},
+                {"id": "global_sports", "name": "Global Sports TV (ESPN, Eurosport, Tennis, RedBull)"},
+                {"id": "all_builtin", "name": "All Built-in Sports & Pakistan Channels Combined"},
+            ],
+        }
+
+    def parse_m3u_content(self, text: str, filter_keyword: str = "", default_group: str = "IPTV") -> list:
+        """Parses standard #EXTM3U / #EXTINF IPTV playlists and optionally filters by keyword."""
+        kw = (filter_keyword or "").strip().lower()
+        lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+        channels = []
+        pending_title = ""
+        pending_group = default_group
+        pending_ref = ""
+
+        for ln in lines:
+            if ln.startswith("#EXTINF"):
+                # Extract channel title after the last comma
+                parts = ln.split(",", 1)
+                pending_title = parts[1].strip() if len(parts) > 1 else "Live TV Channel"
+                pending_group = default_group
+                if 'group-title="' in ln:
+                    try:
+                        pending_group = ln.split('group-title="', 1)[1].split('"', 1)[0].strip() or default_group
+                    except Exception:
+                        pass
+            elif ln.startswith("#EXTVLCOPT:http-referrer="):
+                pending_ref = ln.split("=", 1)[1].strip()
+            elif not ln.startswith("#"):
+                if ln.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+                    ch_title = pending_title or ln.split("/")[-1].split("?")[0] or f"Channel #{len(channels) + 1}"
+                    haystack = f"{ch_title} {pending_group}".lower()
+                    if not kw or kw in haystack:
+                        channels.append({
+                            "title": ch_title,
+                            "group": pending_group,
+                            "url": ln,
+                            "referrer": pending_ref,
+                        })
+                        if len(channels) >= 400:
+                            break
+                pending_title = ""
+                pending_ref = ""
+
+        return channels
+
+    def load_tv_category_or_m3u(
+        self,
+        category_or_url: str,
+        filter_keyword: str = "",
+        auto_play: bool = False,
+        source: str = "Live TV & Sports",
+    ) -> list:
+        """
+        Loads either a built-in Sports/Pakistan TV category OR any remote/local GitHub .m3u/.m3u8 playlist,
+        filters by keyword if provided, and optionally starts playing Channel #1 with Next/Prev channel support.
+        """
+        target = (category_or_url or "cricket_pk").strip()
+        kw = (filter_keyword or "").strip().lower()
+        self.tv_filter = filter_keyword.strip()
+
+        cat_titles = {
+            "cricket_pk": "Pakistan Cricket & Live Sports TV",
+            "youtube_cricket": "Official Cricket YouTube Channels",
+            "pakistan_tv": "Pakistan News & Entertainment Live TV",
+            "global_sports": "Global Sports TV Channels",
+            "all_builtin": "All Built-in Sports & Pakistan Channels",
+        }
+
+        loaded = []
+        if target in BUILTIN_TV_CHANNELS or target == "all_builtin":
+            self.tv_category = target
+            self.tv_source_title = cat_titles.get(target, "Live Sports & TV")
+            if target == "all_builtin":
+                raw_list = []
+                for k in ("cricket_pk", "youtube_cricket", "pakistan_tv", "global_sports"):
+                    raw_list.extend(BUILTIN_TV_CHANNELS[k])
+            else:
+                raw_list = list(BUILTIN_TV_CHANNELS[target])
+
+            for ch in raw_list:
+                if not kw or kw in f"{ch['title']} {ch.get('group', '')}".lower():
+                    loaded.append(dict(ch))
+        else:
+            # Check if target matches a GitHub repo preset ID
+            repo_match = next((r for r in GITHUB_M3U_REPOS if r["id"] == target or r["url"] == target), None)
+            m3u_url = repo_match["url"] if repo_match else target
+            self.tv_category = repo_match["id"] if repo_match else "custom_m3u"
+            self.tv_custom_m3u = m3u_url
+            self.tv_source_title = repo_match["name"] if repo_match else f"M3U Playlist ({os.path.basename(m3u_url)[:32]})"
+
+            self.log(f"[{source}] Fetching M3U Playlist: {m3u_url} (filter='{kw or 'ALL'}')...")
+            try:
+                if os.path.isfile(m3u_url):
+                    with open(m3u_url, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                else:
+                    req = urllib.request.Request(
+                        m3u_url,
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0"},
+                    )
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        content = resp.read().decode("utf-8", errors="ignore")
+
+                loaded = self.parse_m3u_content(content, filter_keyword=kw, default_group=self.tv_source_title)
+                self.log(f"[{source}] Loaded {len(loaded)} channel(s) from '{self.tv_source_title}'.")
+            except Exception as e:
+                self.log(f"[{source}] Failed to load M3U playlist '{m3u_url}': {e}")
+
+        if loaded:
+            self.tv_channels = loaded
+            self.tv_active_index = 0
+            if auto_play:
+                self.play_tv_channel(index=0, source=source)
+        else:
+            self.log(f"[{source}] No channels matched filter '{filter_keyword}'. Keeping previous channel list.")
+
+        return self.tv_channels
+
+    def play_tv_channel(
+        self,
+        index: int = None,
+        url: str = "",
+        title: str = "",
+        source: str = "Live TV & Sports",
+    ):
+        """
+        Streams a channel from the active Live TV / Sports / M3U channel list and populates
+        playlist_items so Next/Prev buttons step seamlessly across channels.
+        """
+        chosen_idx = 0
+        chosen_item = None
+
+        if index is not None and 0 <= int(index) < len(self.tv_channels):
+            chosen_idx = int(index)
+            chosen_item = self.tv_channels[chosen_idx]
+        elif url:
+            for i, ch in enumerate(self.tv_channels):
+                if ch.get("url") == url:
+                    chosen_idx = i
+                    chosen_item = ch
+                    break
+            if chosen_item is None:
+                chosen_item = {"title": title or "Live TV Stream", "url": url, "group": "Custom Live TV"}
+                self.tv_channels.insert(0, chosen_item)
+                chosen_idx = 0
+
+        if not chosen_item and self.tv_channels:
+            chosen_idx = 0
+            chosen_item = self.tv_channels[0]
+
+        if not chosen_item:
+            return
+
+        self.tv_active_index = chosen_idx
+        target_url = chosen_item["url"]
+        target_title = title or chosen_item.get("title") or "Live TV Channel"
+
+        # Check if this channel entry is a YouTube Channel URL (/@... or /playlist?list=...)
+        # If so, let start_youtube_stream expand the YouTube channel's videos/streams into a playlist!
+        lower_u = target_url.lower()
+        is_yt_channel_or_pl = ("youtube.com/@" in lower_u) or ("youtube.com/playlist" in lower_u) or ("list=" in lower_u)
+
+        if is_yt_channel_or_pl:
+            self.start_youtube_stream(
+                target_url,
+                start_sec=0,
+                loop=self.loop_video,
+                source=source,
+                _from_playlist=False,
+                custom_title=target_title,
+            )
+        else:
+            # Load the entire TV channel list into playlist_items so Prev/Next buttons switch channels!
+            self.playlist_items = [
+                {
+                    "id": str(i),
+                    "url": ch["url"],
+                    "title": ch.get("title", f"Channel #{i + 1}"),
+                    "referrer": ch.get("referrer", ""),
+                }
+                for i, ch in enumerate(self.tv_channels)
+            ]
+            self.playlist_index = chosen_idx
+            self.playlist_title = self.tv_source_title or "Live TV Channels"
+            self.start_youtube_stream(
+                target_url,
+                start_sec=0,
+                loop=self.loop_video,
+                source=source,
+                _from_playlist=True,
+                custom_title=target_title,
+            )
 
     def _extract_bundled_assets(self):
         """If running from PyInstaller single-file .exe, unpack bundled mediamtx and chrome_extension."""
@@ -872,10 +1344,11 @@ paths:
         loop: bool = None,
         source: str = "Desktop App",
         _from_playlist: bool = False,
+        custom_title: str = "",
     ):
         """
-        Resolves any YouTube URL, YouTube Playlist (plays all videos one by one automatically),
-        search query, or web video link (.m3u8/.mp4/Twitch/FB) and streams to NVR.
+        Resolves any YouTube URL, YouTube Playlist / Channel (plays all videos one by one automatically),
+        M3U / M3U8 Live TV / Cricket stream, search query, or web video link and streams to NVR.
         """
         query_or_url = query_or_url.strip()
         if not query_or_url:
@@ -887,11 +1360,24 @@ paths:
         my_gen = self._cast_gen
 
         def _worker():
-            nonlocal query_or_url, start_sec
+            nonlocal query_or_url, start_sec, custom_title
 
-            # 1. Check if the user pasted a YouTube Playlist link (e.g. /playlist?list=... or /watch?v=...&list=...)
+            # 0. Check if the user pasted a multi-channel .m3u IPTV playlist URL or local .m3u file
+            if not _from_playlist and (
+                query_or_url.lower().endswith(".m3u")
+                or ".m3u?" in query_or_url.lower()
+                or "raw.githubusercontent.com" in query_or_url.lower()
+                or "iptv-org.github.io" in query_or_url.lower()
+            ):
+                loaded_chs = self.load_tv_category_or_m3u(query_or_url, filter_keyword=self.tv_filter, auto_play=False, source=source)
+                if loaded_chs:
+                    self.play_tv_channel(index=0, source=source)
+                    return
+
+            # 1. Check if the user pasted a YouTube Playlist OR YouTube Channel URL
             if not _from_playlist:
                 has_playlist_param = False
+                is_yt_channel = False
                 list_id = ""
                 seed_vid_id = ""
                 try:
@@ -902,22 +1388,29 @@ paths:
                         has_playlist_param = bool(list_id)
                     if "v" in qs and qs["v"]:
                         seed_vid_id = qs["v"][0].strip()
+                    p_low = (parsed.path or "").lower()
+                    if "youtube.com" in (parsed.netloc or "").lower() and (
+                        p_low.startswith("/@")
+                        or p_low.startswith("/channel/")
+                        or p_low.startswith("/c/")
+                        or p_low.startswith("/user/")
+                    ):
+                        is_yt_channel = True
                 except Exception:
                     pass
 
-                if has_playlist_param:
-                    self.status_cb("LOADING", "Loading YouTube Playlist...")
-                    self.log(f"[{source}] Detecting YouTube Playlist (list={list_id})...")
-                    # For standard playlists (PL, OL, UU, FL), fetch the canonical playlist URL; for RD mixes, keep v=
+                if has_playlist_param or is_yt_channel:
+                    self.status_cb("LOADING", "Loading YouTube Playlist / Channel...")
                     extract_target = (
                         query_or_url
-                        if list_id.startswith("RD") and seed_vid_id
+                        if is_yt_channel or (list_id.startswith("RD") and seed_vid_id)
                         else f"https://www.youtube.com/playlist?list={list_id}"
                     )
+                    self.log(f"[{source}] Expanding YouTube Playlist/Channel: {extract_target}...")
                     flat_opts = {
                         "extract_flat": "in_playlist",
                         "noplaylist": False,
-                        "playlistend": 100,
+                        "playlistend": 60,
                         "quiet": True,
                         "no_warnings": True,
                         "ignoreerrors": True,
@@ -927,6 +1420,9 @@ paths:
                         with yt_dlp.YoutubeDL(flat_opts) as ydl:
                             pl_info = ydl.extract_info(extract_target, download=False)
                         entries = (pl_info or {}).get("entries") or []
+                        # Handle nested tab entries if a channel root URL was given
+                        if entries and isinstance(entries[0], dict) and "entries" in entries[0]:
+                            entries = entries[0].get("entries") or []
                         items = []
                         start_idx = 0
                         for entry in entries:
@@ -939,7 +1435,7 @@ paths:
                             raw_u = entry.get("url") or ""
                             if raw_u.startswith("http"):
                                 v_url = raw_u
-                            elif vid_id:
+                            elif vid_id and len(vid_id) == 11:
                                 v_url = f"https://www.youtube.com/watch?v={vid_id}"
                             else:
                                 continue
@@ -951,13 +1447,14 @@ paths:
                                 "title": e_title or f"Playlist Video #{len(items) + 1}",
                             })
 
-                        if len(items) > 1:
+                        if len(items) >= 1:
                             self.playlist_items = items
                             self.playlist_index = start_idx
-                            self.playlist_title = (pl_info or {}).get("title") or "YouTube Playlist"
+                            self.playlist_title = custom_title or (pl_info or {}).get("title") or "YouTube Playlist"
                             query_or_url = items[start_idx]["url"]
+                            custom_title = items[start_idx]["title"]
                             self.log(
-                                f"Loaded YouTube Playlist '{self.playlist_title}' ({len(items)} videos). "
+                                f"Loaded '{self.playlist_title}' ({len(items)} videos). "
                                 f"Auto-playing from [{start_idx + 1}/{len(items)}]: {items[start_idx]['title']}"
                             )
                         else:
@@ -978,9 +1475,18 @@ paths:
                 return
 
             in_playlist = len(self.playlist_items) > 1
-            pl_badge = f"Playlist [{self.playlist_index + 1}/{len(self.playlist_items)}] " if in_playlist else ""
+            pl_item = (
+                self.playlist_items[self.playlist_index]
+                if in_playlist and 0 <= self.playlist_index < len(self.playlist_items)
+                else None
+            )
+            if pl_item and not custom_title:
+                custom_title = pl_item.get("title", "")
+            item_referrer = pl_item.get("referrer", "") if pl_item else ""
 
-            self.log(f"[{source}] Starting {pl_badge}video stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
+            pl_badge = f"[{self.playlist_index + 1}/{len(self.playlist_items)}] " if in_playlist else ""
+
+            self.log(f"[{source}] Starting {pl_badge}stream: {query_or_url} (start={start_sec}s, loop={self.loop_video})...")
             self.current_url = query_or_url
             self.active_source = source
 
@@ -988,24 +1494,48 @@ paths:
             is_direct_media = any(
                 lower_q.endswith(ext) or f"{ext}?" in lower_q
                 for ext in (".m3u8", ".mp4", ".ts", ".mkv", ".webm", ".mpd")
-            ) or lower_q.startswith("rtsp://") or lower_q.startswith("rtmp://")
+            ) or lower_q.startswith("rtsp://") or lower_q.startswith("rtmp://") or ":8000/play/" in lower_q or ":2122/play/" in lower_q or ":9590/" in lower_q or ":8080/" in lower_q
 
             cached = self._yt_cache.get(query_or_url)
             if cached and (time.time() - cached["ts"] < 1800):
-                title = cached["title"]
+                title = custom_title or cached["title"]
                 is_live = cached["is_live"]
                 video_url = cached["video_url"]
                 audio_url = cached["audio_url"]
                 is_hls = cached["is_hls"]
                 self.log(f"Using cached stream URLs for instant play: '{title}'")
             elif is_direct_media:
-                title = query_or_url.split("/")[-1].split("?")[0] or "Direct Media Stream"
-                is_live = ".m3u8" in lower_q or lower_q.startswith("rtsp://")
+                title = custom_title or query_or_url.split("/")[-1].split("?")[0] or "Live TV Stream"
+                is_live = (".m3u8" in lower_q) or lower_q.startswith("rtsp://") or ("/play/" in lower_q)
                 video_url = query_or_url
                 audio_url = None
-                is_hls = ".m3u8" in lower_q
+                is_hls = (".m3u8" in lower_q) or ("/play/" in lower_q)
+
+                # Quick 3.5s HTTP probe when stepping through multi-channel IPTV playlists so dead links skip fast
+                if in_playlist and video_url.startswith(("http://", "https://")):
+                    try:
+                        hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0"}
+                        if item_referrer:
+                            hdrs["Referer"] = item_referrer
+                        req = urllib.request.Request(video_url, headers=hdrs)
+                        with urllib.request.urlopen(req, timeout=3.8) as r:
+                            _ = r.read(128)
+                    except Exception as probe_err:
+                        self.log(f"Channel '{title}' is offline ({probe_err}) — auto-switching to next channel...")
+                        if self.playlist_index + 1 < len(self.playlist_items):
+                            self.playlist_index += 1
+                            nxt = self.playlist_items[self.playlist_index]
+                            self.start_youtube_stream(
+                                nxt["url"],
+                                0,
+                                self.loop_video,
+                                source,
+                                _from_playlist=True,
+                                custom_title=nxt.get("title", ""),
+                            )
+                        return
             else:
-                self.status_cb("LOADING", f"Loading {pl_badge}: {query_or_url[:40]}...")
+                self.status_cb("LOADING", f"Loading {pl_badge}: {(custom_title or query_or_url)[:40]}...")
                 # Prioritize m3u8_native H.264 (avc1) + m3u8 audio on YouTube to avoid SABR/VISIONOS HTTPS range hangs
                 ydl_opts = {
                     "format": (
@@ -1028,7 +1558,7 @@ paths:
                         if "entries" in info and info["entries"]:
                             info = info["entries"][0]
 
-                        title = info.get("title", "Web Video Stream")
+                        title = custom_title or info.get("title", "Web Video Stream")
                         is_live = info.get("is_live", False)
 
                         req_formats = info.get("requested_formats")
@@ -1057,7 +1587,14 @@ paths:
                         self.playlist_index += 1
                         nxt = self.playlist_items[self.playlist_index]
                         self.log(f"Skipping unavailable track — advancing to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}")
-                        self.start_youtube_stream(nxt["url"], 0, self.loop_video, source, _from_playlist=True)
+                        self.start_youtube_stream(
+                            nxt["url"],
+                            0,
+                            self.loop_video,
+                            source,
+                            _from_playlist=True,
+                            custom_title=nxt.get("title", ""),
+                        )
                         return
                     self.status_cb(self.current_mode, self.current_title)
                     return
@@ -1069,30 +1606,39 @@ paths:
             if len(self.playlist_items) > 1:
                 next_pl_idx = (self.playlist_index + 1) % len(self.playlist_items)
                 next_pl_url = self.playlist_items[next_pl_idx]["url"]
-                threading.Thread(target=self._prefetch_yt_url, args=(next_pl_url,), daemon=True).start()
+                if "youtube.com" in next_pl_url or "youtu.be" in next_pl_url:
+                    threading.Thread(target=self._prefetch_yt_url, args=(next_pl_url,), daemon=True).start()
 
             self.log(f"Matched Stream: '{title}' ({'LIVE' if is_live else 'VOD'}, {'HLS' if is_hls else 'HTTP'})")
 
             seek_args = ["-ss", str(start_sec)] if (start_sec > 0 and not is_live) else []
-            reconnect_args = (
-                []
-                if is_hls
-                else [
-                    "-reconnect", "1",
-                    "-reconnect_streamed", "1",
-                    "-reconnect_delay_max", "5",
+            http_net_args = []
+            if video_url.startswith(("http://", "https://")):
+                http_net_args = [
+                    "-user_agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    "-rw_timeout", "10000000",
                 ]
-            )
+                if item_referrer:
+                    http_net_args += ["-headers", f"Referer: {item_referrer}\r\n"]
+                if not is_hls:
+                    http_net_args += [
+                        "-reconnect", "1",
+                        "-reconnect_streamed", "1",
+                        "-reconnect_delay_max", "5",
+                    ]
+
+            fflags_args = ["-fflags", "+genpts+discardcorrupt"] if is_direct_media else []
 
             if audio_url:
                 input_args = (
-                    ["-re"] + seek_args + reconnect_args + ["-i", video_url]
-                    + ["-re"] + seek_args + reconnect_args + ["-i", audio_url]
+                    ["-re"] + fflags_args + seek_args + http_net_args + ["-i", video_url]
+                    + ["-re"] + seek_args + http_net_args + ["-i", audio_url]
                 )
                 audio_map = "1:a:0?"
             else:
                 input_args = (
-                    ["-re"] + seek_args + reconnect_args + ["-i", video_url]
+                    ["-re"] + fflags_args + seek_args + http_net_args + ["-i", video_url]
                     + ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
                 )
                 audio_map = "0:a:0?"
@@ -1145,7 +1691,7 @@ paths:
                             )
                             threading.Thread(
                                 target=self.start_youtube_stream,
-                                args=(nxt["url"], 0, self.loop_video, source, True),
+                                args=(nxt["url"], 0, self.loop_video, source, True, nxt.get("title", "")),
                                 daemon=True,
                             ).start()
                         elif self.loop_video:
@@ -1156,18 +1702,18 @@ paths:
                             )
                             threading.Thread(
                                 target=self.start_youtube_stream,
-                                args=(first["url"], 0, True, source, True),
+                                args=(first["url"], 0, True, source, True, first.get("title", "")),
                                 daemon=True,
                             ).start()
                         else:
                             self.playlist_items = []
-                            self.log(f"Finished YouTube Playlist '{self.playlist_title}'. Returning to Standby feed...")
+                            self.log(f"Finished Playlist '{self.playlist_title}'. Returning to Standby feed...")
                             threading.Thread(target=self.start_standby_stream, daemon=True).start()
                     elif self.loop_video:
                         self.log(f"Looping YouTube/Web video '{title}' from beginning...")
                         threading.Thread(
                             target=self.start_youtube_stream,
-                            args=(query_or_url, 0, True, source, False),
+                            args=(query_or_url, 0, True, source, False, custom_title),
                             daemon=True,
                         ).start()
                     else:
@@ -1520,11 +2066,13 @@ paths:
         direction = 1 if step >= 0 else -1
         if self.current_mode == "GALLERY":
             self.gallery_force_step = direction
-        elif self.current_mode == "YOUTUBE" and len(self.playlist_items) > 1:
+        elif len(self.playlist_items) > 1:
             self.playlist_index = (self.playlist_index + direction) % len(self.playlist_items)
+            if len(self.playlist_items) == len(self.tv_channels):
+                self.tv_active_index = self.playlist_index
             nxt = self.playlist_items[self.playlist_index]
             self.log(
-                f"Playlist skipped to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}"
+                f"Switched to [{self.playlist_index + 1}/{len(self.playlist_items)}]: {nxt['title']}"
             )
             self.start_youtube_stream(
                 nxt["url"],
@@ -1532,11 +2080,15 @@ paths:
                 loop=self.loop_video,
                 source=self.active_source,
                 _from_playlist=True,
+                custom_title=nxt.get("title", ""),
             )
         elif self.current_mode == "BROWSER":
             with self._browser_frame_lock:
                 self._browser_pending_cmds.append({"event": "playlist_step", "step": direction})
             self.log(f"Live Chrome Playlist skip requested ({'Next' if direction > 0 else 'Prev'} track).")
+        elif len(self.tv_channels) > 1:
+            self.tv_active_index = (self.tv_active_index + direction) % len(self.tv_channels)
+            self.play_tv_channel(index=self.tv_active_index, source="Live TV Channel Step")
 
     def _start_wasapi_audio_tcp_feeder(self, stop_evt: threading.Event):
         """

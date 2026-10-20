@@ -50,6 +50,15 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(payload).encode("utf-8"))
             return
 
+        if self.path.startswith("/api/live_tv"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            payload = self.engine.get_tv_catalog_dict()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+            return
+
         mon_checks_html = ""
         for m in self.engine.detect_monitors():
             if m["index"] == 0:
@@ -284,6 +293,70 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
     display: none;
     margin-top: 12px;
   }}
+  .tv-tabs {{
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }}
+  .tv-tab {{
+    padding: 6px 11px;
+    border-radius: 99px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }}
+  .tv-tab.active {{
+    background: #2563eb;
+    border-color: #1d4ed8;
+    color: #ffffff;
+  }}
+  .tv-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 4px 2px;
+    margin-top: 8px;
+  }}
+  .tv-ch-btn {{
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    padding: 8px 11px;
+    border-radius: 9px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #0f172a;
+    cursor: pointer;
+    transition: all 0.14s ease;
+  }}
+  .tv-ch-btn:hover {{
+    background: #eff6ff;
+    border-color: #93c5fd;
+  }}
+  .tv-ch-btn.active {{
+    background: #eff6ff;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px #2563eb inset;
+  }}
+  .tv-ch-title {{
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+  }}
+  .tv-ch-group {{
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #2563eb;
+    margin-top: 2px;
+  }}
   svg {{
     width: 15px;
     height: 15px;
@@ -348,11 +421,50 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
         <svg viewBox="0 0 24 24"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
       </button>
       <button class="btn-secondary" onclick="seekDelta(30)" title="Forward 30s">+30s</button>
+      <button class="btn-secondary" onclick="stepGallery(-1)" title="Previous Channel / Track">Prev Ch/Track</button>
+      <button class="btn-secondary" onclick="stepGallery(1)" title="Next Channel / Track">Next Ch/Track</button>
       <button class="btn-danger" onclick="stopCast()">
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
         Stop / Standby
       </button>
     </div>
+  </div>
+
+  <!-- Live Sports, Pakistan Cricket & GitHub M3U IPTV Studio -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="card-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        </div>
+        <div>
+          <h3>Live Sports, Pakistan Cricket &amp; GitHub M3U IPTV Studio</h3>
+          <p class="sub" style="margin:2px 0 0 0;">Click any channel to stream live to NVR, filter channels, load open-source GitHub IPTV repositories, or step Next / Prev Channel.</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn-secondary" onclick="stepGallery(-1)">◀ Prev Channel</button>
+        <button class="btn-secondary" onclick="stepGallery(1)">Next Channel ▶</button>
+      </div>
+    </div>
+
+    <div class="tv-tabs" id="tvCategoryTabs" style="margin-top:10px;">
+      <button class="tv-tab active" data-cat="cricket_pk" onclick="selectTvCategory('cricket_pk', this)">🏏 Pakistan Cricket &amp; Live Sports</button>
+      <button class="tv-tab" data-cat="youtube_cricket" onclick="selectTvCategory('youtube_cricket', this)">📺 Official Cricket YouTube (Auto-Play)</button>
+      <button class="tv-tab" data-cat="pakistan_tv" onclick="selectTvCategory('pakistan_tv', this)">🇵🇰 Pakistan News &amp; Entertainment TV</button>
+      <button class="tv-tab" data-cat="global_sports" onclick="selectTvCategory('global_sports', this)">🏆 Global Sports (ESPN / Eurosport / Tennis)</button>
+      <button class="tv-tab" data-cat="iptv_sports" onclick="selectTvCategory('iptv_sports', this)">📡 GitHub: iptv-org Sports (480+)</button>
+      <button class="tv-tab" data-cat="iptv_pk" onclick="selectTvCategory('iptv_pk', this)">📡 GitHub: iptv-org Pakistan (100+)</button>
+      <button class="tv-tab" data-cat="curated_pk_in" onclick="selectTvCategory('curated_pk_in', this)">📡 GitHub: Curated PK &amp; South Asia IPTV</button>
+    </div>
+
+    <div class="row" style="margin-top:8px;margin-bottom:6px;">
+      <input type="text" id="tvFilterInput" placeholder="Search / filter channels (e.g. cricket, geo, willow, star, ptv) or paste any custom .m3u / .m3u8 URL..." onkeydown="if(event.key==='Enter') loadTvFilter(false)">
+      <button class="btn-secondary" onclick="loadTvFilter(false)">Filter / Load M3U</button>
+      <button class="btn-primary" onclick="loadTvFilter(true)">Stream First Match</button>
+    </div>
+
+    <div id="tvChannelGrid" class="tv-grid"></div>
   </div>
 
   <!-- Row 1: Video Streamer + Photo Gallery Slideshow -->
@@ -834,10 +946,99 @@ async function refreshStatus() {{
   }} catch (_) {{}}
 }}
 
+let currentTvCat = 'cricket_pk';
+
+function renderTvGrid(catData) {{
+  const grid = document.getElementById('tvChannelGrid');
+  if (!grid || !catData) return;
+  const chs = catData.channels || [];
+  const activeIdx = catData.active_index || 0;
+  if (!chs.length) {{
+    grid.innerHTML = '<div style="font-size:12.5px;color:#64748b;padding:8px;">No matching channels found. Try clearing the filter or selecting another category.</div>';
+    return;
+  }}
+  grid.innerHTML = chs.map((ch, idx) => {{
+    const isAct = (idx === activeIdx) ? 'active' : '';
+    const safeTitle = (ch.title || 'Channel').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeGroup = (ch.group || 'Live TV').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<button class="tv-ch-btn ${{isAct}}" onclick="playTvChannel(${{idx}})">
+      <span class="tv-ch-title">[${{idx + 1}}] ${{safeTitle}}</span>
+      <span class="tv-ch-group">${{safeGroup}}</span>
+    </button>`;
+  }}).join('');
+}}
+
+async function fetchTvCatalog() {{
+  try {{
+    const r = await fetch('/api/live_tv');
+    const d = await r.json();
+    if (d && d.category) currentTvCat = d.category;
+    renderTvGrid(d);
+  }} catch (_) {{}}
+}}
+
+async function selectTvCategory(catId, btnEl) {{
+  currentTvCat = catId;
+  document.querySelectorAll('#tvCategoryTabs .tv-tab').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+  const filterInp = document.getElementById('tvFilterInput');
+  const rawFilter = filterInp ? filterInp.value.trim() : '';
+  const filterKw = (rawFilter.startsWith('http://') || rawFilter.startsWith('https://')) ? '' : rawFilter;
+  const grid = document.getElementById('tvChannelGrid');
+  if (grid) grid.innerHTML = '<div style="font-size:12.5px;color:#2563eb;padding:8px;font-weight:600;">Loading channels...</div>';
+  try {{
+    const r = await fetch('/api/live_tv', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ action: 'load', category: catId, filter: filterKw, auto_play: false, source: 'Web Studio Live TV' }})
+    }});
+    const d = await r.json();
+    renderTvGrid(d);
+  }} catch (_) {{}}
+}}
+
+async function loadTvFilter(autoPlay) {{
+  const filterInp = document.getElementById('tvFilterInput');
+  const rawVal = filterInp ? filterInp.value.trim() : '';
+  let targetCat = currentTvCat;
+  let filterKw = rawVal;
+  if (rawVal.startsWith('http://') || rawVal.startsWith('https://') || rawVal.toLowerCase().endsWith('.m3u') || rawVal.toLowerCase().endsWith('.m3u8')) {{
+    targetCat = rawVal;
+    filterKw = '';
+  }}
+  const grid = document.getElementById('tvChannelGrid');
+  if (grid) grid.innerHTML = '<div style="font-size:12.5px;color:#2563eb;padding:8px;font-weight:600;">Loading &amp; filtering M3U playlist...</div>';
+  try {{
+    const r = await fetch('/api/live_tv', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ action: 'load', category: targetCat, filter: filterKw, auto_play: !!autoPlay, source: 'Web Studio Live TV' }})
+    }});
+    const d = await r.json();
+    renderTvGrid(d);
+    setTimeout(refreshStatus, 400);
+  }} catch (_) {{}}
+}}
+
+async function playTvChannel(index) {{
+  stopLocalMediaCapture();
+  try {{
+    const r = await fetch('/api/live_tv', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ action: 'play', index, source: 'Web Studio Live TV' }})
+    }});
+    const d = await r.json();
+    renderTvGrid(d);
+    setTimeout(refreshStatus, 400);
+  }} catch (_) {{}}
+}}
+
 setInterval(refreshStatus, 1400);
 
 window.addEventListener('DOMContentLoaded', () => {{
   refreshStatus();
+  fetchTvCatalog();
   const params = new URLSearchParams(window.location.search);
   if (params.get('autoshare') === '1') {{
     setTimeout(startMeetingShare, 400);
@@ -990,6 +1191,42 @@ window.addEventListener('DOMContentLoaded', () => {{
                 self.engine.toggle_pause(source=source)
             if WebRemoteHandler.ui_sync_callback:
                 WebRemoteHandler.ui_sync_callback()
+
+        elif self.path == "/api/live_tv":
+            action = data.get("action", "load")
+            source = data.get("source", "Web Studio Live TV")
+            if action == "load":
+                category = data.get("category", "cricket_pk")
+                filter_kw = data.get("filter", "")
+                auto_play = bool(data.get("auto_play", False))
+                self.engine.load_tv_category_or_m3u(
+                    category,
+                    filter_keyword=filter_kw,
+                    auto_play=auto_play,
+                    source=source,
+                )
+            elif action == "play":
+                idx = data.get("index")
+                url = data.get("url", "")
+                title = data.get("title", "")
+                self.engine.play_tv_channel(
+                    index=int(idx) if idx is not None else None,
+                    url=url,
+                    title=title,
+                    source=source,
+                )
+            elif action == "step":
+                self.engine.step_gallery_slide(int(data.get("step", 1)))
+
+            if WebRemoteHandler.ui_sync_callback:
+                WebRemoteHandler.ui_sync_callback()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(self.engine.get_tv_catalog_dict()).encode("utf-8"))
+            return
 
         elif self.path == "/api/gallery":
             action = data.get("action", "start")

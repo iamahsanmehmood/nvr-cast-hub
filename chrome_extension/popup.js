@@ -35,6 +35,7 @@ chrome.storage.local.get(["hubUrl"], (res) => {
     serverInput.value = res.hubUrl;
   }
   refreshStatus();
+  loadPopupTvCatalog();
 });
 
 function saveHubUrl() {
@@ -366,5 +367,58 @@ if (btnStop) {
     await hubRequest("/api/standby", "POST", { source: "Chrome Extension" });
     showToast("Stopped cast — NVR returned to Standby.");
     refreshStatus();
+  });
+}
+
+// Live Sports, Pakistan Cricket & GitHub IPTV Controls
+const selTvCat = document.getElementById("selTvCat");
+const selTvChannel = document.getElementById("selTvChannel");
+const btnPlayTvCh = document.getElementById("btnPlayTvCh");
+
+function populatePopupTvChannels(catData) {
+  if (!selTvChannel || !catData) return;
+  const chs = catData.channels || [];
+  selTvChannel.innerHTML = chs
+    .map((ch, idx) => `<option value="${idx}">[${idx + 1}] ${ch.title}</option>`)
+    .join("");
+  if (typeof catData.active_index === "number" && catData.active_index < chs.length) {
+    selTvChannel.value = String(catData.active_index);
+  }
+}
+
+async function loadPopupTvCatalog() {
+  const r = await hubRequest("/api/live_tv", "GET");
+  if (r && r.ok && r.status) {
+    if (selTvCat && r.status.category) selTvCat.value = r.status.category;
+    populatePopupTvChannels(r.status);
+  }
+}
+
+if (selTvCat) {
+  selTvCat.addEventListener("change", async () => {
+    showToast("Loading channels...");
+    const r = await hubRequest("/api/live_tv", "POST", {
+      action: "load",
+      category: selTvCat.value,
+      filter: "",
+      auto_play: false,
+      source: "Chrome Extension Live TV",
+    });
+    if (r && r.ok && r.status) {
+      populatePopupTvChannels(r.status);
+    }
+  });
+}
+
+if (btnPlayTvCh) {
+  btnPlayTvCh.addEventListener("click", async () => {
+    const idx = selTvChannel ? parseInt(selTvChannel.value || "0", 10) : 0;
+    showToast("Streaming selected channel to NVR...");
+    await hubRequest("/api/live_tv", "POST", {
+      action: "play",
+      index: idx,
+      source: "Chrome Extension Live TV",
+    });
+    setTimeout(refreshStatus, 400);
   });
 }

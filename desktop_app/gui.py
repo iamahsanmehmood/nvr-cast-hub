@@ -23,8 +23,8 @@ class NVRCastDesktopApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title(f"NVR Cast Hub v{APP_VERSION} — Universal RTSP Media, Slideshow & Multi-Monitor Caster")
-        self.root.geometry("980x850")
+        self.root.title(f"NVR Cast Hub v{APP_VERSION} — Universal RTSP Media, Live Cricket/IPTV, Slideshow & Multi-Monitor Caster")
+        self.root.geometry("1000x920")
         self.root.configure(bg="#f1f5f9")
 
         style = ttk.Style()
@@ -341,12 +341,111 @@ class NVRCastDesktopApp:
         )
         self._make_btn(yt_row, "Browse Video File...", self.on_stream_file, "secondary", padx=11, pady=4).pack(side=tk.LEFT)
 
+        # Card 2B: Live TV, Pakistan Cricket & GitHub Sports M3U Studio
+        tv_card = self._make_card(self.root)
+
+        tk.Label(
+            tv_card,
+            text="2.  LIVE SPORTS, PAKISTAN CRICKET & GITHUB M3U IPTV STUDIO  (NEXT / PREV CHANNEL ZAPPING)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#ffffff",
+            fg="#334155",
+        ).pack(anchor="w", pady=(0, 6))
+
+        tv_row1 = tk.Frame(tv_card, bg="#ffffff")
+        tv_row1.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(tv_row1, text="Source / Repo:", font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
+
+        self.tv_source_options = [
+            ("cricket_pk", "Pakistan Cricket & Live Sports TV (Geo Super, Willow, Ten, Star, DD)"),
+            ("youtube_cricket", "Official Cricket YouTube Channels (PCB, Sports Central, PSL, ACC)"),
+            ("pakistan_tv", "Pakistan News & Entertainment Live TV (24 News, Dunya, Hum, Bol, ARY, Geo)"),
+            ("global_sports", "Global Live Sports TV (ESPN, Eurosport, RedBull, Tennis Channel)"),
+            ("all_builtin", "All Built-in Sports & Pakistan Channels Combined"),
+            ("iptv_sports", "GitHub Repo: iptv-org Sports (480+ Global Sports Channels)"),
+            ("iptv_pk", "GitHub Repo: iptv-org Pakistan (100+ PK Channels)"),
+            ("curated_pk_in", "GitHub Repo: Curated Working Pakistan & South Asia IPTV"),
+            ("freetv_global", "GitHub Repo: Free-TV Open-Source Global IPTV"),
+        ]
+        self.tv_source_combo = ttk.Combobox(
+            tv_row1,
+            values=[label for _, label in self.tv_source_options],
+            width=50,
+            state="readonly",
+        )
+        self.tv_source_combo.current(0)
+        self.tv_source_combo.pack(side=tk.LEFT, padx=(6, 10))
+        self.tv_source_combo.bind("<<ComboboxSelected>>", lambda e: self.on_load_tv_source(auto_play=False))
+
+        tk.Label(tv_row1, text="Filter / .M3U URL:", font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
+        self.tv_filter_entry = tk.Entry(
+            tv_row1,
+            font=("Segoe UI", 9),
+            bg="#f8fafc",
+            fg="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
+        )
+        self.tv_filter_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3, padx=(6, 6))
+        self.tv_filter_entry.bind("<Return>", lambda e: self.on_load_tv_source(auto_play=False))
+
+        self._make_btn(
+            tv_row1,
+            "Load / Filter",
+            lambda: self.on_load_tv_source(auto_play=False),
+            "secondary",
+            padx=10,
+            pady=3,
+        ).pack(side=tk.LEFT)
+
+        tv_row2 = tk.Frame(tv_card, bg="#ffffff")
+        tv_row2.pack(fill=tk.X)
+
+        tk.Label(tv_row2, text="Channel:", font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#475569").pack(side=tk.LEFT)
+        self.tv_channel_combo = ttk.Combobox(
+            tv_row2,
+            values=[],
+            state="readonly",
+        )
+        self.tv_channel_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 8))
+        self.tv_channel_combo.bind("<<ComboboxSelected>>", lambda e: self.on_play_selected_tv_channel())
+
+        self._make_btn(
+            tv_row2,
+            "◀ Prev Ch",
+            lambda: self.engine.step_gallery_slide(-1),
+            "secondary",
+            padx=10,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        self._make_btn(
+            tv_row2,
+            "Next Ch ▶",
+            lambda: self.engine.step_gallery_slide(1),
+            "secondary",
+            padx=10,
+            pady=4,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            tv_row2,
+            "▶  Stream Selected Channel",
+            self.on_play_selected_tv_channel,
+            "primary",
+            padx=14,
+            pady=4,
+        ).pack(side=tk.LEFT)
+
+        self._refresh_tv_channel_combo()
+
         # Card 3: Picture & Photo Gallery Slideshow Studio
         gal_card = self._make_card(self.root)
 
         tk.Label(
             gal_card,
-            text="2.  PICTURE & PHOTO GALLERY SLIDESHOW STUDIO  (SINGLE PHOTO OR FOLDER WITH TIMER & SHUFFLE)",
+            text="3.  PICTURE & PHOTO GALLERY SLIDESHOW STUDIO  (SINGLE PHOTO OR FOLDER WITH TIMER & SHUFFLE)",
             font=("Segoe UI", 9, "bold"),
             bg="#ffffff",
             fg="#334155",
@@ -418,7 +517,7 @@ class NVRCastDesktopApp:
 
         tk.Label(
             mon_card,
-            text="3.  MULTI-MONITOR PC DESKTOP MIRRORING & MEETING TAB/WINDOW SHARE",
+            text="4.  MULTI-MONITOR PC DESKTOP MIRRORING & MEETING TAB/WINDOW SHARE",
             font=("Segoe UI", 9, "bold"),
             bg="#ffffff",
             fg="#334155",
@@ -514,7 +613,7 @@ class NVRCastDesktopApp:
 
         tk.Label(
             settings_row,
-            text="4.  QUALITY & ENCODING:",
+            text="5.  QUALITY & ENCODING:",
             font=("Segoe UI", 9, "bold"),
             bg="#ffffff",
             fg="#334155",
@@ -737,6 +836,49 @@ class NVRCastDesktopApp:
             chosen = [1]
         self.engine.start_screen_cast(chosen, source="Desktop App")
 
+    def _refresh_tv_channel_combo(self):
+        chs = self.engine.tv_channels or []
+        labels = [
+            f"[{i + 1}/{len(chs)}]  {ch.get('title', 'Channel')}  ({ch.get('group', 'Live TV')})"
+            for i, ch in enumerate(chs)
+        ]
+        self.tv_channel_combo["values"] = labels
+        if labels:
+            idx = min(max(0, self.engine.tv_active_index), len(labels) - 1)
+            self.tv_channel_combo.current(idx)
+        else:
+            self.tv_channel_combo.set("No matching channels found")
+
+    def on_load_tv_source(self, auto_play: bool = False):
+        sel_idx = self.tv_source_combo.current()
+        source_id = self.tv_source_options[sel_idx][0] if 0 <= sel_idx < len(self.tv_source_options) else "cricket_pk"
+        raw_input = self.tv_filter_entry.get().strip()
+
+        # If the user pasted a custom .m3u/.m3u8 URL into the Filter/.M3U box, load that URL directly
+        if raw_input.lower().startswith(("http://", "https://")) or raw_input.lower().endswith((".m3u", ".m3u8")):
+            target = raw_input
+            filter_kw = ""
+        else:
+            target = source_id
+            filter_kw = raw_input
+
+        def _bg():
+            self.engine.load_tv_category_or_m3u(
+                target,
+                filter_keyword=filter_kw,
+                auto_play=auto_play,
+                source="Desktop App Live TV",
+            )
+            self.root.after(0, self._refresh_tv_channel_combo)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def on_play_selected_tv_channel(self):
+        idx = self.tv_channel_combo.current()
+        if idx < 0:
+            idx = 0
+        self.engine.play_tv_channel(index=idx, source="Desktop App Live TV")
+
     def _sync_ui_from_engine(self):
         for idx, var in self.mon_vars.items():
             var.set(idx in self.engine.selected_monitors or 0 in self.engine.selected_monitors)
@@ -748,6 +890,7 @@ class NVRCastDesktopApp:
         self.loop_video_var.set(self.engine.loop_video)
         if self.engine.gallery_folder:
             self.gal_folder_var.set(self.engine.gallery_folder)
+        self._refresh_tv_channel_combo()
 
     def copy_to_clipboard(self, text: str):
         self.root.clipboard_clear()
