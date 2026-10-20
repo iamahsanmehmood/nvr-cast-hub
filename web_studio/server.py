@@ -1031,7 +1031,7 @@ async function toggleBrowserPiP() {{
       ctx.drawImage(img, 0, 0, cv.width, cv.height);
     }}
     if (!vid.srcObject) {{
-      vid.srcObject = cv.captureStream(15);
+      vid.srcObject = cv.captureStream(24);
     }}
     await vid.play();
     pipStreamActive = true;
@@ -1042,11 +1042,14 @@ async function toggleBrowserPiP() {{
   }}
 }}
 
+let previewFrameInFlight = false;
 setInterval(() => {{
-  if (webPreviewEnabled) {{
+  if (webPreviewEnabled && !previewFrameInFlight) {{
     const img = document.getElementById('nvrLivePreviewImg');
     if (img) {{
+      previewFrameInFlight = true;
       img.onload = () => {{
+        previewFrameInFlight = false;
         if (pipStreamActive) {{
           const cv = document.getElementById('pipMirrorCanvas');
           if (cv && img.naturalWidth > 0) {{
@@ -1054,10 +1057,11 @@ setInterval(() => {{
           }}
         }}
       }};
+      img.onerror = () => {{ previewFrameInFlight = false; }};
       img.src = '/api/preview.jpg?t=' + Date.now();
     }}
   }}
-}}, 300);
+}}, 55);
 
 async function refreshStatus() {{
   try {{

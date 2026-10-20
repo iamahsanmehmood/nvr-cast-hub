@@ -1,10 +1,10 @@
 {
   "app": "NVR Cast Hub",
   "version": "0.1.0-beta",
-  "updated_at": "2026-10-20 13:05:59",
+  "updated_at": "2026-10-20 13:20:10",
   "settings": {
-    "output_mode": "both",
-    "local_audio_enabled": true,
+    "output_mode": "nvr_only",
+    "local_audio_enabled": false,
     "main_res": "1280x720",
     "fps": 25,
     "video_bitrate": "1800k",

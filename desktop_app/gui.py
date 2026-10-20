@@ -1,6 +1,7 @@
 import io
 import os
 import queue
+import socket
 import threading
 import time
 from http.server import ThreadingHTTPServer
@@ -65,7 +66,10 @@ class NVRCastDesktopApp:
 
         self.mon_vars = {}
         self._preview_photo = None
+        self._preview_img_id = None
         self._last_preview_bytes = None
+        self._last_pil_frame = None
+        self._tick_counter = 0
         self._active_tab_id = "tv"
         self._tab_frames = {}
         self._tab_buttons = {}
@@ -95,7 +99,7 @@ class NVRCastDesktopApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._init_services, daemon=True).start()
-        self.root.after(200, self._preview_and_telemetry_tick)
+        self.root.after(40, self._preview_and_telemetry_tick)
 
     def _configure_ttk_styles(self):
         style = ttk.Style()
@@ -168,7 +172,15 @@ class NVRCastDesktopApp:
             self.root.after(0, self._refresh_addresses)
         try:
             WebRemoteHandler.engine = self.engine
-            httpd = ThreadingHTTPServer(("0.0.0.0", self.engine.web_port), WebRemoteHandler)
+            try:
+                class _DualStackHTTPServer(ThreadingHTTPServer):
+                    address_family = socket.AF_INET6
+                    def server_bind(self):
+                        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+                        return super().server_bind()
+                httpd = _DualStackHTTPServer(("::", self.engine.web_port), WebRemoteHandler)
+            except Exception:
+                httpd = ThreadingHTTPServer(("0.0.0.0", self.engine.web_port), WebRemoteHandler)
             self.engine.log(
                 f"Web Studio active at http://localhost:{self.engine.web_port} "
                 f"(and http://{self.engine.lan_ip}:{self.engine.web_port})"
@@ -2025,7 +2037,7 @@ class NVRCastDesktopApp:
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     # =========================================================================
-    # REAL-TIME PREVIEW RENDERER & STREAM HEALTH DIAGNOSTIC ENGINE (140ms TICK)
+    # REAL-TIME 25 FPS BUFFERED PREVIEW RENDERER & STREAM HEALTH ENGINE (40ms TICK)
     # =========================================================================
     def _render_fitted_frame_on_canvas(self, canvas: tk.Canvas, pil_im, bg_hex: str = "#000000"):
         cw = max(64, canvas.winfo_width())
@@ -2036,190 +2048,210 @@ class NVRCastDesktopApp:
         th = max(1, int(ih * scale))
         resized = pil_im.resize((tw, th), Image.Resampling.BILINEAR) if (tw, th) != (iw, ih) else pil_im
         photo = ImageTk.PhotoImage(resized)
-        canvas.delete("all")
         ox = (cw - tw) // 2
         oy = (ch - th) // 2
-        canvas.create_image(ox, oy, anchor=tk.NW, image=photo)
+        item_id = getattr(canvas, "_img_item_id", None)
+        if item_id is not None:
+            try:
+                canvas.coords(item_id, ox, oy)
+                canvas.itemconfig(item_id, image=photo)
+                return photo
+            except Exception:
+                pass
+        canvas.delete("all")
+        canvas._img_item_id = canvas.create_image(ox, oy, anchor=tk.NW, image=photo)
         return photo
 
     def _preview_and_telemetry_tick(self):
+        t_tick_start = time.perf_counter()
+        self._tick_counter += 1
         try:
             pip_alive = self.pip_win is not None and self.pip_win.winfo_exists() and self.pip_canvas is not None
             fs_alive = self.fs_win is not None and self.fs_win.winfo_exists() and self.fs_canvas is not None
 
-            # 1. Update Live 16:9 (640x360) Preview Canvas + Floating PiP + Full-Screen TV Player
+            # 1. Smooth 25 FPS (40ms) Video Presentation from Pre-Decoded Jitter Buffer
             if self.engine.preview_enabled and Image is not None and ImageTk is not None:
-                jpg_bytes = self.engine.get_preview_jpeg()
+                im_rgb, is_new = self.engine.get_next_preview_frame()
+                if im_rgb is None:
+                    im_rgb = self._last_pil_frame
                 pip_size = (self.pip_canvas.winfo_width(), self.pip_canvas.winfo_height()) if pip_alive else (0, 0)
                 fs_size = (self.fs_canvas.winfo_width(), self.fs_canvas.winfo_height()) if fs_alive else (0, 0)
                 need_redraw = (
-                    (jpg_bytes and jpg_bytes is not self._last_preview_bytes)
+                    (im_rgb is not None and (is_new or im_rgb is not self._last_pil_frame))
                     or (pip_alive and pip_size != self._pip_last_size)
                     or (fs_alive and fs_size != self._fs_last_size)
                 )
-                if jpg_bytes and need_redraw:
-                    self._last_preview_bytes = jpg_bytes
+                if im_rgb is not None and need_redraw:
+                    self._last_pil_frame = im_rgb
                     self._pip_last_size = pip_size
                     self._fs_last_size = fs_size
-                    with Image.open(io.BytesIO(jpg_bytes)) as src_im:
-                        im_rgb = src_im.convert("RGB")
-                        # Main Studio 640x360 canvas
-                        main_im = (
-                            im_rgb.resize((self.PREVIEW_W, self.PREVIEW_H), Image.Resampling.BILINEAR)
-                            if im_rgb.size != (self.PREVIEW_W, self.PREVIEW_H)
-                            else im_rgb
-                        )
-                        self._preview_photo = ImageTk.PhotoImage(main_im)
+
+                    # Main Studio 640x360 canvas (in-place bitmap update without flicker)
+                    main_im = (
+                        im_rgb.resize((self.PREVIEW_W, self.PREVIEW_H), Image.Resampling.BILINEAR)
+                        if im_rgb.size != (self.PREVIEW_W, self.PREVIEW_H)
+                        else im_rgb
+                    )
+                    self._preview_photo = ImageTk.PhotoImage(main_im)
+                    if self._preview_img_id is not None:
+                        try:
+                            self.preview_canvas.itemconfig(self._preview_img_id, image=self._preview_photo)
+                        except Exception:
+                            self.preview_canvas.delete("all")
+                            self._preview_img_id = self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
+                    else:
                         self.preview_canvas.delete("all")
-                        self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
+                        self._preview_img_id = self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
 
-                        # Floating PiP Mini-Player canvas
-                        if pip_alive:
-                            self.pip_photo = self._render_fitted_frame_on_canvas(self.pip_canvas, im_rgb)
+                    # Floating PiP Mini-Player canvas
+                    if pip_alive:
+                        self.pip_photo = self._render_fitted_frame_on_canvas(self.pip_canvas, im_rgb)
 
-                        # Full-Screen TV Player canvas
-                        if fs_alive:
-                            self.fs_photo = self._render_fitted_frame_on_canvas(self.fs_canvas, im_rgb)
+                    # Full-Screen TV Player canvas
+                    if fs_alive:
+                        self.fs_photo = self._render_fitted_frame_on_canvas(self.fs_canvas, im_rgb)
 
-            # Sync PiP & Full-Screen titles and pause buttons
-            if pip_alive:
-                if self.pip_title_lbl:
-                    self.pip_title_lbl.configure(text=self.engine.current_title)
-                if self.pip_pause_btn:
-                    self.pip_pause_btn.configure(text="▶" if self.engine.is_paused else "❚❚")
-            if fs_alive:
-                if self.fs_title_lbl:
-                    self.fs_title_lbl.configure(text=self.engine.current_title)
-                if self.fs_pause_btn:
-                    self.fs_pause_btn.configure(text="▶ Resume" if self.engine.is_paused else "❚❚ Pause")
+            # 2. Run Status Banner & Telemetry UI Sync every 5th tick (200ms) so 40ms video loop stays ultra-light
+            if self._tick_counter % 5 == 0:
+                if pip_alive:
+                    if self.pip_title_lbl:
+                        self.pip_title_lbl.configure(text=self.engine.current_title)
+                    if self.pip_pause_btn:
+                        self.pip_pause_btn.configure(text="▶" if self.engine.is_paused else "❚❚")
+                if fs_alive:
+                    if self.fs_title_lbl:
+                        self.fs_title_lbl.configure(text=self.engine.current_title)
+                    if self.fs_pause_btn:
+                        self.fs_pause_btn.configure(text="▶ Resume" if self.engine.is_paused else "❚❚ Pause")
 
-            # 2. Update Stream Health & Failure Diagnostic Banner
-            d = self.engine.get_status_dict()
-            h = d.get("health", {})
-            h_state = h.get("state", "STANDBY")
-            h_diag = h.get("diag", "")
-            h_err = h.get("error_msg", "")
-            frames = h.get("decoded_frames", 0)
-            out_mode = d.get("output_mode", "both")
+                d = self.engine.get_status_dict()
+                h = d.get("health", {})
+                h_state = h.get("state", "STANDBY")
+                h_diag = h.get("diag", "")
+                h_err = h.get("error_msg", "")
+                frames = h.get("decoded_frames", 0)
+                out_mode = d.get("output_mode", "both")
 
-            mode_desc = {
-                "local_only": "Watch Here in App Only (No NVR)",
-                "nvr_only": f"Casting to NVR Only (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
-                "both": f"Watching in App + Casting to NVR (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
-            }.get(out_mode, "Both")
+                mode_desc = {
+                    "local_only": "Watch Here in App Only (No NVR)",
+                    "nvr_only": f"Casting to NVR Only (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
+                    "both": f"Watching in App + Casting to NVR (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
+                }.get(out_mode, "Both")
 
-            if h_state == "ERROR":
-                self._style_health_banner(
-                    bg="#fef2f2",
-                    border="#fca5a5",
-                    badge_bg="#dc2626",
-                    badge_txt=" ✖ STREAM FAILED / OFFLINE ",
-                    title_fg="#991b1b",
-                    title_txt=f"Stream Failed: {d.get('title', '').replace('✖ FAILED: ', '').replace('✖ OFFLINE: ', '')[:52]}",
-                    detail_fg="#b91c1c",
-                    detail_txt=h_err or h_diag or "Channel or video link could not be decoded. Try another channel or click Test Link.",
+                if h_state == "ERROR":
+                    self._style_health_banner(
+                        bg="#fef2f2",
+                        border="#fca5a5",
+                        badge_bg="#dc2626",
+                        badge_txt=" ✖ STREAM FAILED / OFFLINE ",
+                        title_fg="#991b1b",
+                        title_txt=f"Stream Failed: {d.get('title', '').replace('✖ FAILED: ', '').replace('✖ OFFLINE: ', '')[:52]}",
+                        detail_fg="#b91c1c",
+                        detail_txt=h_err or h_diag or "Channel or video link could not be decoded. Try another channel or click Test Link.",
+                    )
+                elif h_state == "PROBING":
+                    self._style_health_banner(
+                        bg="#eff6ff",
+                        border="#93c5fd",
+                        badge_bg="#2563eb",
+                        badge_txt=" ◌ PROBING LINK ",
+                        title_fg="#1e40af",
+                        title_txt=h_diag or "Verifying server & resolving stream URL...",
+                        detail_fg="#1d4ed8",
+                        detail_txt=f"Target: {d.get('current_url', '')[:82]}",
+                    )
+                elif h_state == "CONNECTING":
+                    self._style_health_banner(
+                        bg="#fffbeb",
+                        border="#fcd34d",
+                        badge_bg="#d97706",
+                        badge_txt=" ◔ BUFFERING VIDEO ",
+                        title_fg="#92400e",
+                        title_txt=h_diag or "Pre-buffering stream for smooth jitter-free playback...",
+                        detail_fg="#b45309",
+                        detail_txt=f"Output Mode: {mode_desc}",
+                    )
+                elif h_state == "STALLED":
+                    self._style_health_banner(
+                        bg="#fffbeb",
+                        border="#fbbf24",
+                        badge_bg="#b45309",
+                        badge_txt=" ⚠ RE-BUFFERING ",
+                        title_fg="#92400e",
+                        title_txt=h_diag or "Stream waiting for new packets from remote server...",
+                        detail_fg="#b45309",
+                        detail_txt=f"Decoded {frames} frames so far. Re-buffering automatically or switch channel.",
+                    )
+                elif h_state == "PAUSED":
+                    self._style_health_banner(
+                        bg="#fffbeb",
+                        border="#fde68a",
+                        badge_bg="#d97706",
+                        badge_txt=" ❚❚ PAUSED ",
+                        title_fg="#92400e",
+                        title_txt=h_diag or "Stream Paused",
+                        detail_fg="#b45309",
+                        detail_txt="Click '▶ Resume' below to continue playing.",
+                    )
+                elif h_state == "LIVE":
+                    badge_lbl = " ● PLAYING IN APP " if out_mode == "local_only" else " ● LIVE STREAMING "
+                    self._style_health_banner(
+                        bg="#ecfdf5",
+                        border="#6ee7b7",
+                        badge_bg="#059669",
+                        badge_txt=badge_lbl,
+                        title_fg="#065f46",
+                        title_txt=h_diag or f"Playing Live • Frame #{frames}",
+                        detail_fg="#047857",
+                        detail_txt=mode_desc,
+                    )
+                else:
+                    self._style_health_banner(
+                        bg="#f0fdf4",
+                        border="#bbf7d0",
+                        badge_bg="#16a34a",
+                        badge_txt=" ● READY ",
+                        title_fg="#166534",
+                        title_txt=f"Ready • {mode_desc}",
+                        detail_fg="#15803d",
+                        detail_txt="Double-click any Pakistani TV channel, Cricket stream, YouTube video, or Photo Slideshow on the right.",
+                    )
+
+                # 3. Update Elapsed Time / Playlist / Gallery Counter
+                mode = d.get("mode", "STANDBY")
+                pl = d.get("playlist", {})
+                pl_tag = f"[{pl.get('index', 0) + 1}/{pl.get('count', 1)}] " if pl.get("count", 0) > 1 else ""
+
+                if mode in ("YOUTUBE", "FILE", "BROWSER"):
+                    sec = d.get("playback_sec", 0)
+                    m, s = divmod(sec, 60)
+                    self.pos_label.configure(text=f"{pl_tag}{m:02d}:{s:02d}{' • LOOP' if d.get('loop_video') else ''}")
+                elif mode == "GALLERY":
+                    gal = d.get("gallery", {})
+                    self.pos_label.configure(
+                        text=f"Slide {gal.get('index', 0) + 1}/{gal.get('count', 1)} ({gal.get('interval', 5)}s)"
+                    )
+                    self.gal_status_lbl.configure(
+                        text=f"● Active Gallery: Slide {gal.get('index', 0) + 1} of {gal.get('count', 1)}  •  {gal.get('current_file', '')}"
+                    )
+                else:
+                    self.pos_label.configure(text=pl_tag)
+
+                self.pause_btn.configure(text="▶ Resume" if d.get("is_paused") else "❚❚ Pause")
+                self.source_label.configure(text=f"Source: {d.get('active_source', 'System')}")
+
+                st = d.get("settings", {})
+                self.telemetry_lbl.configure(
+                    text=f"Mode: {out_mode.upper()}  •  {st.get('main_res')} @ {st.get('fps')}fps ({st.get('video_bitrate')})  •  App Audio: {'ON' if d.get('local_audio_enabled') else 'Muted'}"
                 )
-            elif h_state == "PROBING":
-                self._style_health_banner(
-                    bg="#eff6ff",
-                    border="#93c5fd",
-                    badge_bg="#2563eb",
-                    badge_txt=" ◌ PROBING LINK ",
-                    title_fg="#1e40af",
-                    title_txt=h_diag or "Verifying server & resolving stream URL...",
-                    detail_fg="#1d4ed8",
-                    detail_txt=f"Target: {d.get('current_url', '')[:82]}",
-                )
-            elif h_state == "CONNECTING":
-                self._style_health_banner(
-                    bg="#fffbeb",
-                    border="#fcd34d",
-                    badge_bg="#d97706",
-                    badge_txt=" ◔ BUFFERING VIDEO ",
-                    title_fg="#92400e",
-                    title_txt=h_diag or "Connected to server — decoding first video frame...",
-                    detail_fg="#b45309",
-                    detail_txt=f"Output Mode: {mode_desc}",
-                )
-            elif h_state == "STALLED":
-                self._style_health_banner(
-                    bg="#fffbeb",
-                    border="#fbbf24",
-                    badge_bg="#b45309",
-                    badge_txt=" ⚠ STREAM STALLED ",
-                    title_fg="#92400e",
-                    title_txt=h_diag or "Stream waiting for new packets from remote server...",
-                    detail_fg="#b45309",
-                    detail_txt=f"Decoded {frames} frames so far. Reconnecting or switch to next channel.",
-                )
-            elif h_state == "PAUSED":
-                self._style_health_banner(
-                    bg="#fffbeb",
-                    border="#fde68a",
-                    badge_bg="#d97706",
-                    badge_txt=" ❚❚ PAUSED ",
-                    title_fg="#92400e",
-                    title_txt=h_diag or "Stream Paused",
-                    detail_fg="#b45309",
-                    detail_txt="Click '▶ Resume' below to continue playing.",
-                )
-            elif h_state == "LIVE":
-                badge_lbl = " ● PLAYING IN APP " if out_mode == "local_only" else " ● LIVE STREAMING "
-                self._style_health_banner(
-                    bg="#ecfdf5",
-                    border="#6ee7b7",
-                    badge_bg="#059669",
-                    badge_txt=badge_lbl,
-                    title_fg="#065f46",
-                    title_txt=h_diag or f"Playing Live • Frame #{frames}",
-                    detail_fg="#047857",
-                    detail_txt=mode_desc,
-                )
-            else:
-                self._style_health_banner(
-                    bg="#f0fdf4",
-                    border="#bbf7d0",
-                    badge_bg="#16a34a",
-                    badge_txt=" ● READY ",
-                    title_fg="#166534",
-                    title_txt=f"Ready • {mode_desc}",
-                    detail_fg="#15803d",
-                    detail_txt="Double-click any Pakistani TV channel, Cricket stream, YouTube video, or Photo Slideshow on the right.",
-                )
 
-            # 3. Update Elapsed Time / Playlist / Gallery Counter
-            mode = d.get("mode", "STANDBY")
-            pl = d.get("playlist", {})
-            pl_tag = f"[{pl.get('index', 0) + 1}/{pl.get('count', 1)}] " if pl.get("count", 0) > 1 else ""
-
-            if mode in ("YOUTUBE", "FILE", "BROWSER"):
-                sec = d.get("playback_sec", 0)
-                m, s = divmod(sec, 60)
-                self.pos_label.configure(text=f"{pl_tag}{m:02d}:{s:02d}{' • LOOP' if d.get('loop_video') else ''}")
-            elif mode == "GALLERY":
-                gal = d.get("gallery", {})
-                self.pos_label.configure(
-                    text=f"Slide {gal.get('index', 0) + 1}/{gal.get('count', 1)} ({gal.get('interval', 5)}s)"
-                )
-                self.gal_status_lbl.configure(
-                    text=f"● Active Gallery: Slide {gal.get('index', 0) + 1} of {gal.get('count', 1)}  •  {gal.get('current_file', '')}"
-                )
-            else:
-                self.pos_label.configure(text=pl_tag)
-
-            self.pause_btn.configure(text="▶ Resume" if d.get("is_paused") else "❚❚ Pause")
-            self.source_label.configure(text=f"Source: {d.get('active_source', 'System')}")
-
-            st = d.get("settings", {})
-            self.telemetry_lbl.configure(
-                text=f"Mode: {out_mode.upper()}  •  {st.get('main_res')} @ {st.get('fps')}fps ({st.get('video_bitrate')})  •  App Audio: {'ON' if d.get('local_audio_enabled') else 'Muted'}"
-            )
-
-            self._sync_playlist_tree_if_needed()
+                self._sync_playlist_tree_if_needed()
         except Exception:
             pass
 
-        self.root.after(200, self._preview_and_telemetry_tick)
+        elapsed_ms = int((time.perf_counter() - t_tick_start) * 1000)
+        next_delay_ms = max(12, 38 - elapsed_ms)
+        self.root.after(next_delay_ms, self._preview_and_telemetry_tick)
 
     def _style_health_banner(
         self,
