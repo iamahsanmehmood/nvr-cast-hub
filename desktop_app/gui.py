@@ -72,7 +72,26 @@ class NVRCastDesktopApp:
         self._output_mode_btns = {}
         self._tv_status_cache = {}
 
+        # In-App Floating Picture-in-Picture (PiP) & Full-Screen TV Player State
+        self.pip_win = None
+        self.pip_canvas = None
+        self.pip_photo = None
+        self.pip_title_lbl = None
+        self.pip_pause_btn = None
+        self.pip_audio_btn = None
+        self.pip_pin_var = tk.BooleanVar(value=True)
+        self._pip_last_size = (0, 0)
+
+        self.fs_win = None
+        self.fs_canvas = None
+        self.fs_photo = None
+        self.fs_title_lbl = None
+        self.fs_pause_btn = None
+        self.fs_audio_btn = None
+        self._fs_last_size = (0, 0)
+
         self._build_ui()
+        self.root.bind("<F11>", lambda e: self.on_toggle_fullscreen())
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._init_services, daemon=True).start()
@@ -407,11 +426,33 @@ class NVRCastDesktopApp:
 
         tk.Label(
             mode_top,
-            text="OUTPUT DESTINATION (WATCH HERE IN APP OR CAST TO NVR):",
+            text="OUTPUT DESTINATION & VIEW MODE:",
             font=("Segoe UI", 8, "bold"),
             bg="#f8fafc",
             fg="#334155",
         ).pack(side=tk.LEFT)
+
+        self.fs_btn = self._make_btn(
+            mode_top,
+            text="⛶ Full Screen (F11)",
+            variant="dark",
+            padx=9,
+            pady=2,
+            font_size=8,
+            command=self.on_toggle_fullscreen,
+        )
+        self.fs_btn.pack(side=tk.RIGHT, padx=(4, 0))
+
+        self.pip_btn = self._make_btn(
+            mode_top,
+            text="🗗 PiP Mini Player",
+            variant="accent",
+            padx=9,
+            pady=2,
+            font_size=8,
+            command=self.on_toggle_pip,
+        )
+        self.pip_btn.pack(side=tk.RIGHT, padx=(4, 0))
 
         self.audio_mute_btn = self._make_btn(
             mode_top,
@@ -428,7 +469,7 @@ class NVRCastDesktopApp:
             mode_top,
             text="⏸ Pause View",
             variant="secondary",
-            padx=8,
+            padx=7,
             pady=2,
             font_size=8,
             command=self.on_toggle_preview,
@@ -460,7 +501,7 @@ class NVRCastDesktopApp:
 
         self._refresh_output_mode_buttons()
 
-        # 2. Large 16:9 Video Player Canvas (640x360)
+        # 2. Large 16:9 Video Player Canvas (640x360) — Double-Click for Full Screen
         canvas_wrap = tk.Frame(
             parent,
             bg="#0f172a",
@@ -478,8 +519,10 @@ class NVRCastDesktopApp:
             height=self.PREVIEW_H,
             bg="#0f172a",
             highlightthickness=0,
+            cursor="hand2",
         )
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
+        self.preview_canvas.bind("<Double-1>", lambda e: self.on_toggle_fullscreen())
         self._draw_initial_preview_canvas()
 
         # 3. Stream Health & Diagnostic Banner
@@ -633,45 +676,65 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             t_row2,
-            "◁ Seek -10s",
+            "◁ -10s",
             lambda: self.engine.seek_stream(delta_sec=-10, source="Desktop App"),
             "secondary",
-            padx=8,
+            padx=7,
             pady=4,
             font_size=8,
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
 
         self._make_btn(
             t_row2,
-            "Seek +10s ▷",
+            "+10s ▷",
             lambda: self.engine.seek_stream(delta_sec=10, source="Desktop App"),
             "secondary",
-            padx=8,
+            padx=7,
             pady=4,
             font_size=8,
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=3)
 
         self._make_btn(
             t_row2,
-            "🎬 Open Current in VLC",
+            "🗗 PiP Mini",
+            self.on_toggle_pip,
+            "accent",
+            padx=8,
+            pady=4,
+            font_size=8,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=3)
+
+        self._make_btn(
+            t_row2,
+            "⛶ Full Screen",
+            self.on_toggle_fullscreen,
+            "dark",
+            padx=8,
+            pady=4,
+            font_size=8,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=3)
+
+        self._make_btn(
+            t_row2,
+            "🎬 VLC",
             self.on_open_current_in_vlc,
             "secondary",
-            padx=8,
+            padx=7,
             pady=4,
             font_size=8,
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=3)
 
         self._make_btn(
             t_row2,
-            "■ Stop / Standby",
+            "■ Stop",
             lambda: threading.Thread(
                 target=self.engine.start_standby_stream, args=("Desktop App",), daemon=True
             ).start(),
             "danger",
-            padx=10,
+            padx=8,
             pady=4,
             font_size=8,
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
 
         # Telemetry Footer
         telemetry_row = tk.Frame(parent, bg="#ffffff")
@@ -705,6 +768,16 @@ class NVRCastDesktopApp:
                 self.audio_mute_btn.configure(text="🔊 App Audio: ON", bg="#059669", fg="#ffffff")
             else:
                 self.audio_mute_btn.configure(text="🔇 App Audio: Muted", bg="#f8fafc", fg="#475569")
+        if self.pip_audio_btn and self.pip_win and self.pip_win.winfo_exists():
+            self.pip_audio_btn.configure(
+                text="🔊" if self.engine.local_audio_enabled else "🔇",
+                bg="#059669" if self.engine.local_audio_enabled else "#334155",
+            )
+        if self.fs_audio_btn and self.fs_win and self.fs_win.winfo_exists():
+            self.fs_audio_btn.configure(
+                text="🔊 Audio: ON" if self.engine.local_audio_enabled else "🔇 Audio: Muted",
+                bg="#059669" if self.engine.local_audio_enabled else "#334155",
+            )
 
     def on_select_output_mode(self, mode: str):
         self.engine.set_output_mode(mode, source="Desktop App")
@@ -722,6 +795,281 @@ class NVRCastDesktopApp:
     def on_open_current_in_vlc(self):
         target = self.engine.current_url or self.engine.current_filepath or DEFAULT_VLC_M3U_PATH
         self.engine.open_in_vlc(target)
+
+    # =========================================================================
+    # IN-APP PICTURE-IN-PICTURE (PiP) FLOATING PLAYER & FULL-SCREEN TV MODE
+    # =========================================================================
+    def _ensure_preview_active_for_player(self):
+        if self.engine.output_mode == "nvr_only":
+            self.on_select_output_mode("both")
+        elif not self.engine.preview_enabled:
+            self.on_toggle_preview()
+
+    def on_toggle_pip(self):
+        """Toggles the Always-On-Top Floating Picture-in-Picture (PiP) Mini Player."""
+        if self.pip_win is not None and self.pip_win.winfo_exists():
+            self.on_close_pip(restore_studio=True)
+            return
+
+        if self.fs_win is not None and self.fs_win.winfo_exists():
+            self.on_close_fullscreen(restore_studio=False)
+
+        self._ensure_preview_active_for_player()
+
+        pip = tk.Toplevel(self.root)
+        pip.title(f"PiP Player — {self.engine.current_title}")
+        pip.configure(bg="#0f172a")
+        pip.attributes("-topmost", True)
+        pip.minsize(320, 220)
+
+        # Position in bottom-right corner of the primary screen
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        pw, ph = 480, 315
+        px = max(20, sw - pw - 36)
+        py = max(20, sh - ph - 86)
+        pip.geometry(f"{pw}x{ph}+{px}+{py}")
+
+        self.pip_win = pip
+        self._pip_last_size = (0, 0)
+
+        # Top slim title & status bar inside PiP
+        top_bar = tk.Frame(pip, bg="#1e293b", padx=8, pady=4)
+        top_bar.pack(fill=tk.X, side=tk.TOP)
+
+        tk.Label(
+            top_bar,
+            text="🗗 PiP",
+            font=("Segoe UI", 8, "bold"),
+            bg="#2563eb",
+            fg="#ffffff",
+            padx=5,
+            pady=1,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.pip_title_lbl = tk.Label(
+            top_bar,
+            text=self.engine.current_title,
+            font=("Segoe UI", 8, "bold"),
+            bg="#1e293b",
+            fg="#f8fafc",
+            anchor="w",
+        )
+        self.pip_title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Bottom compact control bar inside PiP
+        ctl_bar = tk.Frame(pip, bg="#1e293b", padx=6, pady=5)
+        ctl_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def _pip_btn(txt, cmd, bg="#334155", fg="#f8fafc"):
+            b = tk.Button(
+                ctl_bar,
+                text=txt,
+                font=("Segoe UI", 8, "bold"),
+                bg=bg,
+                fg=fg,
+                activebackground="#475569",
+                activeforeground="#ffffff",
+                relief=tk.FLAT,
+                bd=0,
+                padx=7,
+                pady=3,
+                cursor="hand2",
+                command=cmd,
+            )
+            b.pack(side=tk.LEFT, padx=2)
+            return b
+
+        _pip_btn("⏮ Prev", lambda: self.engine.step_gallery_slide(-1))
+        self.pip_pause_btn = _pip_btn(
+            "▶" if self.engine.is_paused else "❚❚",
+            self.on_toggle_pause,
+            bg="#2563eb",
+        )
+        _pip_btn("Next ⏭", lambda: self.engine.step_gallery_slide(1))
+        _pip_btn("-10s", lambda: self.engine.seek_stream(delta_sec=-10, source="PiP Player"))
+        _pip_btn("+10s", lambda: self.engine.seek_stream(delta_sec=10, source="PiP Player"))
+
+        self.pip_audio_btn = _pip_btn(
+            "🔊" if self.engine.local_audio_enabled else "🔇",
+            self.on_toggle_local_audio,
+            bg="#059669" if self.engine.local_audio_enabled else "#334155",
+        )
+
+        # Right-aligned PiP window actions: Full Screen & Restore Studio
+        tk.Button(
+            ctl_bar,
+            text="🗖 Studio",
+            font=("Segoe UI", 8, "bold"),
+            bg="#059669",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=lambda: self.on_close_pip(restore_studio=True),
+        ).pack(side=tk.RIGHT, padx=2)
+
+        tk.Button(
+            ctl_bar,
+            text="⛶ Full",
+            font=("Segoe UI", 8, "bold"),
+            bg="#4f46e5",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=self.on_toggle_fullscreen,
+        ).pack(side=tk.RIGHT, padx=2)
+
+        # Resizable 16:9 Video Canvas in the center of PiP
+        self.pip_canvas = tk.Canvas(pip, bg="#000000", highlightthickness=0, cursor="hand2")
+        self.pip_canvas.pack(fill=tk.BOTH, expand=True)
+        self.pip_canvas.bind("<Double-1>", lambda e: self.on_toggle_fullscreen())
+
+        pip.protocol("WM_DELETE_WINDOW", lambda: self.on_close_pip(restore_studio=True))
+
+        # Minimize main Studio window so the floating PiP stays clean over your desktop
+        self.root.iconify()
+        self._last_preview_bytes = None
+        self.engine.log("Opened Floating Picture-in-Picture (PiP) Mini Player (Always-On-Top).")
+
+    def on_close_pip(self, restore_studio: bool = True):
+        if self.pip_win is not None:
+            try:
+                self.pip_win.destroy()
+            except Exception:
+                pass
+        self.pip_win = None
+        self.pip_canvas = None
+        self.pip_photo = None
+        if restore_studio:
+            try:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_force()
+            except Exception:
+                pass
+        self._last_preview_bytes = None
+
+    def on_toggle_fullscreen(self):
+        """Toggles the 100% Full-Screen Borderless TV & Video Player (F11 / Double-Click / Esc)."""
+        if self.fs_win is not None and self.fs_win.winfo_exists():
+            self.on_close_fullscreen(restore_studio=True)
+            return
+
+        if self.pip_win is not None and self.pip_win.winfo_exists():
+            self.on_close_pip(restore_studio=False)
+
+        self._ensure_preview_active_for_player()
+
+        fs = tk.Toplevel(self.root)
+        fs.title(f"Full Screen Player — {self.engine.current_title}")
+        fs.configure(bg="#000000")
+        fs.attributes("-fullscreen", True)
+        fs.attributes("-topmost", True)
+
+        self.fs_win = fs
+        self._fs_last_size = (0, 0)
+
+        # Bottom Sleek Cinema HUD Control Bar
+        hud = tk.Frame(fs, bg="#0f172a", highlightbackground="#334155", highlightthickness=1, padx=16, pady=8)
+        hud.pack(fill=tk.X, side=tk.BOTTOM)
+
+        tk.Label(
+            hud,
+            text=" ● LIVE TV / FULL SCREEN ",
+            font=("Segoe UI", 9, "bold"),
+            bg="#2563eb",
+            fg="#ffffff",
+            padx=8,
+            pady=2,
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        self.fs_title_lbl = tk.Label(
+            hud,
+            text=self.engine.current_title,
+            font=("Segoe UI", 11, "bold"),
+            bg="#0f172a",
+            fg="#f8fafc",
+            anchor="w",
+        )
+        self.fs_title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def _fs_btn(txt, cmd, bg="#1e293b", fg="#f8fafc"):
+            b = tk.Button(
+                hud,
+                text=txt,
+                font=("Segoe UI", 9, "bold"),
+                bg=bg,
+                fg=fg,
+                activebackground="#334155",
+                activeforeground="#ffffff",
+                relief=tk.FLAT,
+                bd=0,
+                padx=11,
+                pady=5,
+                cursor="hand2",
+                command=cmd,
+            )
+            b.pack(side=tk.LEFT, padx=3)
+            return b
+
+        _fs_btn("⏮ Prev Ch (↑)", lambda: self.engine.step_gallery_slide(-1))
+        _fs_btn("◁ -10s (←)", lambda: self.engine.seek_stream(delta_sec=-10, source="Full Screen"))
+        self.fs_pause_btn = _fs_btn(
+            "▶ Resume" if self.engine.is_paused else "❚❚ Pause",
+            self.on_toggle_pause,
+            bg="#2563eb",
+        )
+        _fs_btn("+10s (→) ▷", lambda: self.engine.seek_stream(delta_sec=10, source="Full Screen"))
+        _fs_btn("Next Ch (↓) ⏭", lambda: self.engine.step_gallery_slide(1))
+
+        self.fs_audio_btn = _fs_btn(
+            "🔊 Audio: ON" if self.engine.local_audio_enabled else "🔇 Audio: Muted",
+            self.on_toggle_local_audio,
+            bg="#059669" if self.engine.local_audio_enabled else "#334155",
+        )
+
+        _fs_btn("🗗 Switch to PiP", self.on_toggle_pip, bg="#4f46e5")
+        _fs_btn("✕ Exit Full Screen (Esc)", lambda: self.on_close_fullscreen(restore_studio=True), bg="#dc2626")
+
+        # Main Full-Screen Cinema Canvas
+        self.fs_canvas = tk.Canvas(fs, bg="#000000", highlightthickness=0, cursor="hand2")
+        self.fs_canvas.pack(fill=tk.BOTH, expand=True)
+        self.fs_canvas.bind("<Double-1>", lambda e: self.on_close_fullscreen(restore_studio=True))
+
+        # Keyboard shortcuts in Full Screen
+        fs.bind("<Escape>", lambda e: self.on_close_fullscreen(restore_studio=True))
+        fs.bind("<F11>", lambda e: self.on_close_fullscreen(restore_studio=True))
+        fs.bind("<space>", lambda e: self.on_toggle_pause())
+        fs.bind("<Left>", lambda e: self.engine.seek_stream(delta_sec=-10, source="Full Screen"))
+        fs.bind("<Right>", lambda e: self.engine.seek_stream(delta_sec=10, source="Full Screen"))
+        fs.bind("<Up>", lambda e: self.engine.step_gallery_slide(-1))
+        fs.bind("<Down>", lambda e: self.engine.step_gallery_slide(1))
+        fs.focus_force()
+
+        self._last_preview_bytes = None
+        self.engine.log("Entered Full-Screen TV Mode (Press Esc, F11, or Double-Click to exit).")
+
+    def on_close_fullscreen(self, restore_studio: bool = True):
+        if self.fs_win is not None:
+            try:
+                self.fs_win.destroy()
+            except Exception:
+                pass
+        self.fs_win = None
+        self.fs_canvas = None
+        self.fs_photo = None
+        if restore_studio:
+            try:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_force()
+            except Exception:
+                pass
+        self._last_preview_bytes = None
 
     def _draw_initial_preview_canvas(self):
         w, h = self.PREVIEW_W, self.PREVIEW_H
@@ -1677,21 +2025,73 @@ class NVRCastDesktopApp:
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     # =========================================================================
-    # REAL-TIME PREVIEW RENDERER & STREAM HEALTH DIAGNOSTIC ENGINE (200ms TICK)
+    # REAL-TIME PREVIEW RENDERER & STREAM HEALTH DIAGNOSTIC ENGINE (140ms TICK)
     # =========================================================================
+    def _render_fitted_frame_on_canvas(self, canvas: tk.Canvas, pil_im, bg_hex: str = "#000000"):
+        cw = max(64, canvas.winfo_width())
+        ch = max(48, canvas.winfo_height())
+        iw, ih = pil_im.size
+        scale = min(cw / float(iw), ch / float(ih))
+        tw = max(1, int(iw * scale))
+        th = max(1, int(ih * scale))
+        resized = pil_im.resize((tw, th), Image.Resampling.BILINEAR) if (tw, th) != (iw, ih) else pil_im
+        photo = ImageTk.PhotoImage(resized)
+        canvas.delete("all")
+        ox = (cw - tw) // 2
+        oy = (ch - th) // 2
+        canvas.create_image(ox, oy, anchor=tk.NW, image=photo)
+        return photo
+
     def _preview_and_telemetry_tick(self):
         try:
-            # 1. Update Live 16:9 (640x360) Preview Canvas if preview_enabled
+            pip_alive = self.pip_win is not None and self.pip_win.winfo_exists() and self.pip_canvas is not None
+            fs_alive = self.fs_win is not None and self.fs_win.winfo_exists() and self.fs_canvas is not None
+
+            # 1. Update Live 16:9 (640x360) Preview Canvas + Floating PiP + Full-Screen TV Player
             if self.engine.preview_enabled and Image is not None and ImageTk is not None:
                 jpg_bytes = self.engine.get_preview_jpeg()
-                if jpg_bytes and jpg_bytes is not self._last_preview_bytes:
+                pip_size = (self.pip_canvas.winfo_width(), self.pip_canvas.winfo_height()) if pip_alive else (0, 0)
+                fs_size = (self.fs_canvas.winfo_width(), self.fs_canvas.winfo_height()) if fs_alive else (0, 0)
+                need_redraw = (
+                    (jpg_bytes and jpg_bytes is not self._last_preview_bytes)
+                    or (pip_alive and pip_size != self._pip_last_size)
+                    or (fs_alive and fs_size != self._fs_last_size)
+                )
+                if jpg_bytes and need_redraw:
                     self._last_preview_bytes = jpg_bytes
-                    with Image.open(io.BytesIO(jpg_bytes)) as im:
-                        if im.size != (self.PREVIEW_W, self.PREVIEW_H):
-                            im = im.resize((self.PREVIEW_W, self.PREVIEW_H), Image.Resampling.BILINEAR)
-                        self._preview_photo = ImageTk.PhotoImage(im)
-                    self.preview_canvas.delete("all")
-                    self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
+                    self._pip_last_size = pip_size
+                    self._fs_last_size = fs_size
+                    with Image.open(io.BytesIO(jpg_bytes)) as src_im:
+                        im_rgb = src_im.convert("RGB")
+                        # Main Studio 640x360 canvas
+                        main_im = (
+                            im_rgb.resize((self.PREVIEW_W, self.PREVIEW_H), Image.Resampling.BILINEAR)
+                            if im_rgb.size != (self.PREVIEW_W, self.PREVIEW_H)
+                            else im_rgb
+                        )
+                        self._preview_photo = ImageTk.PhotoImage(main_im)
+                        self.preview_canvas.delete("all")
+                        self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
+
+                        # Floating PiP Mini-Player canvas
+                        if pip_alive:
+                            self.pip_photo = self._render_fitted_frame_on_canvas(self.pip_canvas, im_rgb)
+
+                        # Full-Screen TV Player canvas
+                        if fs_alive:
+                            self.fs_photo = self._render_fitted_frame_on_canvas(self.fs_canvas, im_rgb)
+
+            # Sync PiP & Full-Screen titles and pause buttons
+            if pip_alive:
+                if self.pip_title_lbl:
+                    self.pip_title_lbl.configure(text=self.engine.current_title)
+                if self.pip_pause_btn:
+                    self.pip_pause_btn.configure(text="▶" if self.engine.is_paused else "❚❚")
+            if fs_alive:
+                if self.fs_title_lbl:
+                    self.fs_title_lbl.configure(text=self.engine.current_title)
+                if self.fs_pause_btn:
+                    self.fs_pause_btn.configure(text="▶ Resume" if self.engine.is_paused else "❚❚ Pause")
 
             # 2. Update Stream Health & Failure Diagnostic Banner
             d = self.engine.get_status_dict()

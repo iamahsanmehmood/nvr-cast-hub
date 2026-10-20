@@ -1705,7 +1705,7 @@ paths:
 
         main_scale = self._scale_expr(w, h)
         sub_scale = self._scale_expr("640", "360")
-        prev_scale = self._scale_expr("640", "360")
+        prev_scale = self._scale_expr("960", "540")
 
         local_audio_args = []
         if local_audio_port:
@@ -1719,17 +1719,18 @@ paths:
             ]
 
         if self.output_mode == "local_only":
-            filter_complex = f"[0:v]fps=15,{prev_scale},format=yuvj420p[vprev]"
+            hd_prev_scale = self._scale_expr("1280", "720")
+            filter_complex = f"[0:v]fps=18,{hd_prev_scale},format=yuvj420p[vprev]"
             v_prev_enc = [
                 "-map", "[vprev]",
                 "-c:v", "mjpeg",
-                "-q:v", "5",
+                "-q:v", "4",
                 "-f", "image2pipe",
                 "pipe:1",
             ]
             return ["-filter_complex", filter_complex] + v_prev_enc + local_audio_args
 
-        prev_fps = 1 if self.output_mode == "nvr_only" else 10
+        prev_fps = 1 if self.output_mode == "nvr_only" else 12
         filter_complex = (
             f"[0:v]fps={fps},format=yuv420p,split=3[v1][v2][v3];"
             f"[v1]{main_scale}[vmain];"

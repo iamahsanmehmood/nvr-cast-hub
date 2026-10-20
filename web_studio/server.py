@@ -443,15 +443,21 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
   <!-- Unified Active Session Bar + Live NVR Preview Monitor -->
   <div class="session-bar" style="align-items:stretch;">
     <div style="display:flex;flex-direction:column;gap:6px;width:300px;flex-shrink:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:0.3px;">● LIVE PLAYER &amp; MONITOR</span>
-        <button class="btn-secondary" id="btnToggleWebPreview" style="padding:2px 8px;font-size:11px;" onclick="toggleWebPreview()">⏸ Pause View</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+        <span style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:0.3px;">● LIVE PLAYER</span>
+        <div style="display:flex;gap:4px;">
+          <button class="btn-secondary" style="padding:2px 7px;font-size:11px;" onclick="toggleBrowserPiP()" title="Floating Picture-in-Picture Player">🗗 PiP</button>
+          <button class="btn-secondary" style="padding:2px 7px;font-size:11px;" onclick="toggleBrowserFullscreen()" title="Full Screen Player">⛶ Full</button>
+          <button class="btn-secondary" id="btnToggleWebPreview" style="padding:2px 7px;font-size:11px;" onclick="toggleWebPreview()">⏸ Pause</button>
+        </div>
       </div>
-      <div style="position:relative;width:300px;height:169px;background:#0f172a;border-radius:10px;overflow:hidden;border:1px solid #cbd5e1;">
-        <img id="nvrLivePreviewImg" src="/api/preview.jpg" alt="Live NVR Stream Preview" style="width:100%;height:100%;object-fit:contain;display:block;">
+      <div id="nvrPreviewContainer" ondblclick="toggleBrowserFullscreen()" style="position:relative;width:300px;height:169px;background:#0f172a;border-radius:10px;overflow:hidden;border:1px solid #cbd5e1;cursor:pointer;" title="Double-click for Full Screen">
+        <img id="nvrLivePreviewImg" crossorigin="anonymous" src="/api/preview.jpg" alt="Live NVR Stream Preview" style="width:100%;height:100%;object-fit:contain;display:block;">
         <div id="nvrPreviewPausedMsg" style="display:none;position:absolute;inset:0;background:#0f172a;color:#93c5fd;font-size:12px;font-weight:600;align-items:center;justify-content:center;text-align:center;padding:14px;">
           ⏸ Live Preview Paused<br><span style="font-size:11px;color:#94a3b8;font-weight:400;">Click Resume View anytime</span>
         </div>
+        <canvas id="pipMirrorCanvas" width="960" height="540" style="display:none;"></canvas>
+        <video id="pipMirrorVideo" muted playsinline style="display:none;"></video>
       </div>
     </div>
     <div class="session-info" style="display:flex;flex-direction:column;justify-content:space-between;">
@@ -980,6 +986,7 @@ async function startMeetingShare() {{
 }}
 
 let webPreviewEnabled = true;
+let pipStreamActive = false;
 
 function toggleWebPreview() {{
   webPreviewEnabled = !webPreviewEnabled;
@@ -987,22 +994,70 @@ function toggleWebPreview() {{
   const img = document.getElementById('nvrLivePreviewImg');
   const msg = document.getElementById('nvrPreviewPausedMsg');
   if (webPreviewEnabled) {{
-    btn.textContent = '⏸ Stop Preview';
+    btn.textContent = '⏸ Pause';
     img.style.display = 'block';
     msg.style.display = 'none';
   }} else {{
-    btn.textContent = '▶ Resume Preview';
+    btn.textContent = '▶ Resume';
     img.style.display = 'none';
     msg.style.display = 'flex';
+  }}
+}}
+
+function toggleBrowserFullscreen() {{
+  const box = document.getElementById('nvrPreviewContainer');
+  if (!box) return;
+  if (!document.fullscreenElement) {{
+    box.requestFullscreen().catch(() => {{}});
+  }} else {{
+    document.exitFullscreen().catch(() => {{}});
+  }}
+}}
+
+async function toggleBrowserPiP() {{
+  try {{
+    if (document.pictureInPictureElement) {{
+      await document.exitPictureInPicture();
+      return;
+    }}
+    const img = document.getElementById('nvrLivePreviewImg');
+    const cv = document.getElementById('pipMirrorCanvas');
+    const vid = document.getElementById('pipMirrorVideo');
+    if (!img || !cv || !vid) return;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    if (img.complete && img.naturalWidth > 0) {{
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    }}
+    if (!vid.srcObject) {{
+      vid.srcObject = cv.captureStream(15);
+    }}
+    await vid.play();
+    pipStreamActive = true;
+    await vid.requestPictureInPicture();
+    vid.addEventListener('leavepictureinpicture', () => {{ pipStreamActive = false; }}, {{ once: true }});
+  }} catch (e) {{
+    alert('Picture-in-Picture note: ' + e.message);
   }}
 }}
 
 setInterval(() => {{
   if (webPreviewEnabled) {{
     const img = document.getElementById('nvrLivePreviewImg');
-    if (img) img.src = '/api/preview.jpg?t=' + Date.now();
+    if (img) {{
+      img.onload = () => {{
+        if (pipStreamActive) {{
+          const cv = document.getElementById('pipMirrorCanvas');
+          if (cv && img.naturalWidth > 0) {{
+            cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          }}
+        }}
+      }};
+      img.src = '/api/preview.jpg?t=' + Date.now();
+    }}
   }}
-}}, 380);
+}}, 300);
 
 async function refreshStatus() {{
   try {{
