@@ -1,0 +1,280 @@
+{
+  "app": "NVR Cast Hub",
+  "version": "0.1.0-beta",
+  "updated_at": "2026-10-20 13:05:59",
+  "settings": {
+    "output_mode": "both",
+    "local_audio_enabled": true,
+    "main_res": "1280x720",
+    "fps": 25,
+    "video_bitrate": "1800k",
+    "audio_codec": "pcm_mulaw",
+    "aspect_mode": "fit",
+    "show_cursor": true,
+    "capture_pc_audio": true,
+    "auto_skip_offline": false,
+    "gallery_interval": 5,
+    "gallery_shuffle": false
+  },
+  "channel_catalog": {
+    "cricket_pk": [
+      {
+        "title": "Geo Super HD (1080p Live Cricket & Sports)",
+        "group": "Pakistan Cricket",
+        "url": "http://116.90.120.149:8000/play/a021/index.m3u8"
+      },
+      {
+        "title": "Willow Cricket HD (720p Live Cricket)",
+        "group": "Live Cricket",
+        "url": "http://tvsen5.aynascope.net/willowhd/index.m3u8"
+      },
+      {
+        "title": "Ten Cricket Live",
+        "group": "Live Cricket",
+        "url": "http://103.151.60.162:2122/play/a0fj/index.m3u8?hls"
+      },
+      {
+        "title": "PK Sports HD (Pakistan 720p)",
+        "group": "Pakistan Sports",
+        "url": "https://lbgo.bozztv.com/ssh101/ssh101/pksportshd/playlist.m3u8"
+      },
+      {
+        "title": "M Sports HD (Pakistan 1080p)",
+        "group": "Pakistan Sports",
+        "url": "https://cdn.rabta.stream/M-Sports/index.m3u8"
+      },
+      {
+        "title": "Sony Sports Ten 5 Live",
+        "group": "Live Cricket",
+        "url": "http://103.151.60.162:2122/play/a028/index.m3u8?hls"
+      },
+      {
+        "title": "Star Sports 2 Live",
+        "group": "Live Cricket",
+        "url": "http://103.151.60.162:2122/play/a00v/index.m3u8?hls"
+      },
+      {
+        "title": "Star Sports Select 1 HD (1080p)",
+        "group": "Live Sports",
+        "url": "http://103.151.60.162:2122/play/a026/index.m3u8?hls"
+      },
+      {
+        "title": "Star Sports Select 2 HD (1080p)",
+        "group": "Live Sports",
+        "url": "http://103.151.60.162:2122/play/a027/index.m3u8?hls"
+      },
+      {
+        "title": "DD Sports HD (1080p)",
+        "group": "Live Sports",
+        "url": "https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/b17adfe543354fdd8d189b110617cddd/index.m3u8"
+      },
+      {
+        "title": "T Sports 7 Live",
+        "group": "Live Cricket",
+        "url": "https://live-us1.thaimomo.com/live-as/chtsport-1/playlist.m3u8"
+      }
+    ],
+    "pakistan_tv": [
+      {
+        "title": "24 News HD (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://cdn4.mjunoon.tv:8087/streamtest/146M/chunks.m3u8"
+      },
+      {
+        "title": "Dunya News HD (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://imob.dunyanews.tv/livehd/ngrp:dunyalivehd_2_all/playlist.m3u8"
+      },
+      {
+        "title": "365 News HD (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://cdn4.mjunoon.tv:8087/streamtest/140M/chunks.m3u8"
+      },
+      {
+        "title": "Capital TV News (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://cdn4.mjunoon.tv:8087/streamtest/111M/chunks.m3u8"
+      },
+      {
+        "title": "Lahore News HD (Pakistan)",
+        "group": "Pakistan News",
+        "url": "https://vcdn.dunyanews.tv/lahorelive/ngrp:lnews_1_all/playlist.m3u8"
+      },
+      {
+        "title": "M News HD (1080p Pakistan)",
+        "group": "Pakistan News",
+        "url": "https://cdn.rabta.stream/M-News/index.m3u8"
+      },
+      {
+        "title": "Such TV News (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://video.primexsports.com/suchnews/live/playlist.m3u8"
+      },
+      {
+        "title": "ABN Urdu (Pakistan Live)",
+        "group": "Pakistan News",
+        "url": "https://mediaserver.abnvideos.com/streams/abnurdu.m3u8"
+      },
+      {
+        "title": "Bol Entertainment HD (Pakistan)",
+        "group": "Pakistan Entertainment",
+        "url": "https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8"
+      },
+      {
+        "title": "aurLife HD (Pakistan Entertainment)",
+        "group": "Pakistan Entertainment",
+        "url": "http://124.109.47.101/hls/stream1.m3u8"
+      },
+      {
+        "title": "8XM Music TV (Pakistan)",
+        "group": "Pakistan Music",
+        "url": "https://cdn4.mjunoon.tv:8087/streamtest/131M/chunks.m3u8"
+      },
+      {
+        "title": "JooMusic HD (Pakistan 720p)",
+        "group": "Pakistan Music",
+        "url": "https://livecdn.live247stream.com/joomusic/tv/playlist.m3u8"
+      },
+      {
+        "title": "Madani Channel HD (Pakistan 720p)",
+        "group": "Pakistan Islamic",
+        "url": "http://tvsen7.aynascope.net/MadaniTV/index.m3u8"
+      },
+      {
+        "title": "BS Film (Pakistan Movies)",
+        "group": "Pakistan Movies",
+        "url": "https://lbgo.bozztv.com/ssh101/ssh101/bsfilm/playlist.m3u8"
+      },
+      {
+        "title": "BSTV Pakistan",
+        "group": "Pakistan TV",
+        "url": "https://lbgo.bozztv.com/ssh101/ssh101/bstv/playlist.m3u8"
+      },
+      {
+        "title": "Falak TV (Pakistan Live)",
+        "group": "Pakistan TV",
+        "url": "https://falak.rst.ae/index.m3u8"
+      },
+      {
+        "title": "Fazal TV HD (1080p)",
+        "group": "Pakistan TV",
+        "url": "http://cdn9.live247stream.com/punjabitvcanada/tv/playlist.m3u8"
+      },
+      {
+        "title": "Minimax Kids (Pakistan)",
+        "group": "Pakistan Kids",
+        "url": "https://vodzong.mjunoon.tv:8087/streamtest/disckids-157-1/playlist.m3u8"
+      },
+      {
+        "title": "ARY News Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@ARYNewsTvofficial/streams"
+      },
+      {
+        "title": "Geo News Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@geonews/streams"
+      },
+      {
+        "title": "Hum News Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@HumNewsPakistan/streams"
+      },
+      {
+        "title": "Samaa TV Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@SamaaTv/streams"
+      },
+      {
+        "title": "Express News Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@ExpressNews/streams"
+      },
+      {
+        "title": "Dawn News Official (YouTube Live)",
+        "group": "Pakistan News (YT)",
+        "url": "https://www.youtube.com/@dawnnews/streams"
+      }
+    ],
+    "youtube_cricket": [
+      {
+        "title": "Pakistan Cricket (PCB Official — Matches & Highlights)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@pakistancricket/videos"
+      },
+      {
+        "title": "Pakistan Cricket LIVE (PCB Live Domestic & Series Streams)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@pakistancricket/streams"
+      },
+      {
+        "title": "Sports Central (Pakistan Matches & PSL Official Highlights)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@SportsCentralOfficial/videos"
+      },
+      {
+        "title": "Pakistan Super League (Official PSL Videos & Matches)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@PakistanSuperLeagueOfficial/videos"
+      },
+      {
+        "title": "A Sports HD Official (Pakistan Sports YouTube)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@asportstvpk/videos"
+      },
+      {
+        "title": "PTV Sports Official (Pakistan Sports YouTube)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@ptvsportsofficial/videos"
+      },
+      {
+        "title": "Asian Cricket Council (Asia Cup & Pakistan Classics)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@AsianCricketCouncilTV/videos"
+      },
+      {
+        "title": "ICC Official (World Cup & International Cricket)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@ICC/videos"
+      },
+      {
+        "title": "Willow Cricket Official YouTube (Match Highlights)",
+        "group": "YouTube Cricket",
+        "url": "https://www.youtube.com/@willow/videos"
+      }
+    ],
+    "global_sports": [
+      {
+        "title": "ESPN HD (720p Live Sports)",
+        "group": "Global Sports",
+        "url": "http://85.237.89.160:9590/usa-s/ESPN-HD/index.m3u8"
+      },
+      {
+        "title": "ESPN 2 HD (720p Live Sports)",
+        "group": "Global Sports",
+        "url": "http://85.237.89.160:9590/usa-s/ESPN-2-HD/index.m3u8"
+      },
+      {
+        "title": "ESPNU HD (720p College & World Sports)",
+        "group": "Global Sports",
+        "url": "http://85.237.89.160:9590/usa-s/ESPN-U-HD/index.m3u8"
+      },
+      {
+        "title": "Tennis Channel 2 HD (Live Tennis)",
+        "group": "Global Sports",
+        "url": "https://mumbai-edge.smartplaytv.in/Tennis2/index.m3u8"
+      },
+      {
+        "title": "Unbeaten Sports Network (1080p 24/7 Sports)",
+        "group": "Global Sports",
+        "url": "https://d1t5afz6qed3xk.cloudfront.net/Unbeaten.m3u8"
+      },
+      {
+        "title": "30A Golf Kingdom HD (720p Golf)",
+        "group": "Global Sports",
+        "url": "https://30a-tv.com/feeds/vidaa/golf.m3u8"
+      }
+    ],
+    "custom_channels": []
+  }
+}

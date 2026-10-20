@@ -42,6 +42,9 @@ APP_DIR = os.path.dirname(sys.executable) if IS_FROZEN else os.path.dirname(os.p
 
 BIN_DIR = os.path.join(APP_DIR, "bin")
 EXT_DIR = os.path.join(APP_DIR, "chrome_extension")
+CONFIG_DIR = os.path.join(APP_DIR, "config")
+CONFIG_JSON_PATH = os.path.join(CONFIG_DIR, "nvr_cast_config.json")
+DEFAULT_VLC_M3U_PATH = os.path.join(CONFIG_DIR, "NVR_Cast_Hub_Channels_VLC.m3u")
 MEDIAMTX_EXE = os.path.join(BIN_DIR, "mediamtx.exe")
 MEDIAMTX_YML = os.path.join(BIN_DIR, "mediamtx.yml")
 
@@ -106,43 +109,6 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://live-us1.thaimomo.com/live-as/chtsport-1/playlist.m3u8",
         },
     ],
-    "youtube_cricket": [
-        {
-            "title": "Pakistan Cricket (PCB Official — Matches & Highlights)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@pakistancricket/videos",
-        },
-        {
-            "title": "Pakistan Cricket LIVE (PCB Live Domestic & Series Streams)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@pakistancricket/streams",
-        },
-        {
-            "title": "Sports Central (Pakistan Matches & PSL Official Highlights)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@SportsCentralOfficial/videos",
-        },
-        {
-            "title": "Pakistan Super League (Official PSL Videos & Matches)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@PakistanSuperLeagueOfficial/videos",
-        },
-        {
-            "title": "Asian Cricket Council (Asia Cup & Pakistan Classics)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@AsianCricketCouncilTV/videos",
-        },
-        {
-            "title": "ICC Official (World Cup & International Cricket)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@ICC/videos",
-        },
-        {
-            "title": "Willow Cricket Official YouTube (Match Highlights)",
-            "group": "YouTube Cricket",
-            "url": "https://www.youtube.com/@willow/videos",
-        },
-    ],
     "pakistan_tv": [
         {
             "title": "24 News HD (Pakistan Live)",
@@ -180,9 +146,19 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://video.primexsports.com/suchnews/live/playlist.m3u8",
         },
         {
+            "title": "ABN Urdu (Pakistan Live)",
+            "group": "Pakistan News",
+            "url": "https://mediaserver.abnvideos.com/streams/abnurdu.m3u8",
+        },
+        {
             "title": "Bol Entertainment HD (Pakistan)",
-            "group": "Pakistan TV",
+            "group": "Pakistan Entertainment",
             "url": "https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8",
+        },
+        {
+            "title": "aurLife HD (Pakistan Entertainment)",
+            "group": "Pakistan Entertainment",
+            "url": "http://124.109.47.101/hls/stream1.m3u8",
         },
         {
             "title": "8XM Music TV (Pakistan)",
@@ -190,24 +166,116 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://cdn4.mjunoon.tv:8087/streamtest/131M/chunks.m3u8",
         },
         {
-            "title": "ABN Urdu (Pakistan Live)",
-            "group": "Pakistan News",
-            "url": "https://mediaserver.abnvideos.com/streams/abnurdu.m3u8",
+            "title": "JooMusic HD (Pakistan 720p)",
+            "group": "Pakistan Music",
+            "url": "https://livecdn.live247stream.com/joomusic/tv/playlist.m3u8",
+        },
+        {
+            "title": "Madani Channel HD (Pakistan 720p)",
+            "group": "Pakistan Islamic",
+            "url": "http://tvsen7.aynascope.net/MadaniTV/index.m3u8",
+        },
+        {
+            "title": "BS Film (Pakistan Movies)",
+            "group": "Pakistan Movies",
+            "url": "https://lbgo.bozztv.com/ssh101/ssh101/bsfilm/playlist.m3u8",
+        },
+        {
+            "title": "BSTV Pakistan",
+            "group": "Pakistan TV",
+            "url": "https://lbgo.bozztv.com/ssh101/ssh101/bstv/playlist.m3u8",
+        },
+        {
+            "title": "Falak TV (Pakistan Live)",
+            "group": "Pakistan TV",
+            "url": "https://falak.rst.ae/index.m3u8",
+        },
+        {
+            "title": "Fazal TV HD (1080p)",
+            "group": "Pakistan TV",
+            "url": "http://cdn9.live247stream.com/punjabitvcanada/tv/playlist.m3u8",
+        },
+        {
+            "title": "Minimax Kids (Pakistan)",
+            "group": "Pakistan Kids",
+            "url": "https://vodzong.mjunoon.tv:8087/streamtest/disckids-157-1/playlist.m3u8",
         },
         {
             "title": "ARY News Official (YouTube Live)",
-            "group": "Pakistan News",
+            "group": "Pakistan News (YT)",
             "url": "https://www.youtube.com/@ARYNewsTvofficial/streams",
         },
         {
             "title": "Geo News Official (YouTube Live)",
-            "group": "Pakistan News",
+            "group": "Pakistan News (YT)",
             "url": "https://www.youtube.com/@geonews/streams",
         },
         {
+            "title": "Hum News Official (YouTube Live)",
+            "group": "Pakistan News (YT)",
+            "url": "https://www.youtube.com/@HumNewsPakistan/streams",
+        },
+        {
             "title": "Samaa TV Official (YouTube Live)",
-            "group": "Pakistan News",
+            "group": "Pakistan News (YT)",
             "url": "https://www.youtube.com/@SamaaTv/streams",
+        },
+        {
+            "title": "Express News Official (YouTube Live)",
+            "group": "Pakistan News (YT)",
+            "url": "https://www.youtube.com/@ExpressNews/streams",
+        },
+        {
+            "title": "Dawn News Official (YouTube Live)",
+            "group": "Pakistan News (YT)",
+            "url": "https://www.youtube.com/@dawnnews/streams",
+        },
+    ],
+    "youtube_cricket": [
+        {
+            "title": "Pakistan Cricket (PCB Official — Matches & Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@pakistancricket/videos",
+        },
+        {
+            "title": "Pakistan Cricket LIVE (PCB Live Domestic & Series Streams)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@pakistancricket/streams",
+        },
+        {
+            "title": "Sports Central (Pakistan Matches & PSL Official Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@SportsCentralOfficial/videos",
+        },
+        {
+            "title": "Pakistan Super League (Official PSL Videos & Matches)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@PakistanSuperLeagueOfficial/videos",
+        },
+        {
+            "title": "A Sports HD Official (Pakistan Sports YouTube)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@asportstvpk/videos",
+        },
+        {
+            "title": "PTV Sports Official (Pakistan Sports YouTube)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@ptvsportsofficial/videos",
+        },
+        {
+            "title": "Asian Cricket Council (Asia Cup & Pakistan Classics)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@AsianCricketCouncilTV/videos",
+        },
+        {
+            "title": "ICC Official (World Cup & International Cricket)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@ICC/videos",
+        },
+        {
+            "title": "Willow Cricket Official YouTube (Match Highlights)",
+            "group": "YouTube Cricket",
+            "url": "https://www.youtube.com/@willow/videos",
         },
     ],
     "global_sports": [
@@ -242,6 +310,7 @@ BUILTIN_TV_CHANNELS = {
             "url": "https://30a-tv.com/feeds/vidaa/golf.m3u8",
         },
     ],
+    "custom_channels": [],
 }
 
 GITHUB_M3U_REPOS = [
@@ -416,13 +485,22 @@ class NVRCastEngine:
         self.playlist_title = ""
 
         # Live TV, Pakistan Cricket & GitHub M3U IPTV State
+        self.channel_catalog = {k: [dict(ch) for ch in v] for k, v in BUILTIN_TV_CHANNELS.items()}
         self.tv_category = "cricket_pk"
         self.tv_source_title = "Pakistan Cricket & Live Sports"
         self.tv_filter = ""
         self.tv_custom_m3u = ""
-        self.tv_channels = list(BUILTIN_TV_CHANNELS["cricket_pk"])
+        self.tv_channels = list(self.channel_catalog["cricket_pk"])
         self.tv_active_index = 0
         self.auto_skip_offline = False
+
+        # 3-Way Output Routing Mode:
+        #   "local_only" -> Watch/Preview inside this App ONLY (no NVR needed, 15fps 640x360 + PC Speaker Audio)
+        #   "nvr_only"   -> Cast to NVR RTSP (/main & /sub) ONLY (local preview off)
+        #   "both"       -> Watch Here inside App + Cast to NVR simultaneously
+        self.output_mode = "both"
+        self.local_audio_enabled = False
+        self.local_audio_stop_evt = threading.Event()
 
         # Live Preview & Transparent Stream Health Telemetry
         self.preview_enabled = True
@@ -458,10 +536,346 @@ class NVRCastEngine:
         self.selected_monitors = [1] if len(self.monitors_info) > 1 else [0]
 
         self._extract_bundled_assets()
+        self._init_and_load_config()
 
     def log(self, msg: str):
         timestamp = time.strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] {msg}")
+
+    def _init_and_load_config(self):
+        """
+        Loads persistent configuration & channel catalog from config/nvr_cast_config.json if present,
+        and always ensures both config/nvr_cast_config.json and config/NVR_Cast_Hub_Channels_VLC.m3u
+        exist on disk by default for instant VLC & setup usage.
+        """
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            if os.path.isfile(CONFIG_JSON_PATH):
+                with open(CONFIG_JSON_PATH, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                settings = cfg.get("settings", {})
+                self.output_mode = settings.get("output_mode", self.output_mode)
+                if self.output_mode not in ("local_only", "nvr_only", "both"):
+                    self.output_mode = "both"
+                self.preview_enabled = (self.output_mode != "nvr_only")
+                self.local_audio_enabled = bool(settings.get("local_audio_enabled", self.output_mode == "local_only"))
+                self.main_res = settings.get("main_res", self.main_res)
+                self.fps = int(settings.get("fps", self.fps))
+                self.video_bitrate = settings.get("video_bitrate", self.video_bitrate)
+                self.audio_codec = settings.get("audio_codec", self.audio_codec)
+                self.aspect_mode = settings.get("aspect_mode", self.aspect_mode)
+                self.show_cursor = bool(settings.get("show_cursor", self.show_cursor))
+                self.capture_pc_audio = bool(settings.get("capture_pc_audio", self.capture_pc_audio))
+                self.auto_skip_offline = bool(settings.get("auto_skip_offline", self.auto_skip_offline))
+                self.gallery_interval = int(settings.get("gallery_interval", self.gallery_interval))
+                self.gallery_shuffle = bool(settings.get("gallery_shuffle", self.gallery_shuffle))
+
+                saved_cat = cfg.get("channel_catalog", {})
+                if isinstance(saved_cat, dict):
+                    for k, ch_list in saved_cat.items():
+                        if isinstance(ch_list, list) and ch_list:
+                            # Merge saved channels with any new built-in channels so updates are preserved
+                            existing_urls = {c.get("url") for c in ch_list if isinstance(c, dict)}
+                            merged = [dict(c) for c in ch_list if isinstance(c, dict) and c.get("url")]
+                            for builtin_ch in BUILTIN_TV_CHANNELS.get(k, []):
+                                if builtin_ch["url"] not in existing_urls:
+                                    merged.append(dict(builtin_ch))
+                            self.channel_catalog[k] = merged
+
+            self.tv_channels = list(self.channel_catalog.get(self.tv_category, self.channel_catalog["cricket_pk"]))
+            self.save_persistent_config()
+            self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, only_current_list=False, quiet=True)
+        except Exception as e:
+            self.log(f"Config init note: {e}")
+
+    def save_persistent_config(self, filepath: str = None) -> str:
+        """Saves current settings and full channel catalog (including custom Pakistani/Sports channels) to JSON."""
+        target = filepath or CONFIG_JSON_PATH
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            payload = {
+                "app": "NVR Cast Hub",
+                "version": APP_VERSION,
+                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "settings": {
+                    "output_mode": self.output_mode,
+                    "local_audio_enabled": self.local_audio_enabled,
+                    "main_res": self.main_res,
+                    "fps": self.fps,
+                    "video_bitrate": self.video_bitrate,
+                    "audio_codec": self.audio_codec,
+                    "aspect_mode": self.aspect_mode,
+                    "show_cursor": self.show_cursor,
+                    "capture_pc_audio": self.capture_pc_audio,
+                    "auto_skip_offline": self.auto_skip_offline,
+                    "gallery_interval": self.gallery_interval,
+                    "gallery_shuffle": self.gallery_shuffle,
+                },
+                "channel_catalog": self.channel_catalog,
+            }
+            with open(target, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            return target
+        except Exception as e:
+            self.log(f"Failed to save config '{target}': {e}")
+            return ""
+
+    def export_vlc_m3u(self, filepath: str = None, only_current_list: bool = False, quiet: bool = False) -> str:
+        """Exports all channels (or current category) to a standard VLC Media Player .m3u playlist file."""
+        target = filepath or DEFAULT_VLC_M3U_PATH
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            lines = ["#EXTM3U"]
+            if only_current_list:
+                ch_iter = self.tv_channels
+            else:
+                ch_iter = []
+                for cat_key in ("cricket_pk", "pakistan_tv", "custom_channels", "global_sports", "youtube_cricket"):
+                    ch_iter.extend(self.channel_catalog.get(cat_key, []))
+
+            seen_urls = set()
+            count = 0
+            for ch in ch_iter:
+                u = (ch.get("url") or "").strip()
+                if not u or u in seen_urls:
+                    continue
+                seen_urls.add(u)
+                t = (ch.get("title") or "Channel").replace(",", " -")
+                g = (ch.get("group") or "Live TV").replace('"', "'")
+                ref = (ch.get("referrer") or "").strip()
+                lines.append(f'#EXTINF:-1 group-title="{g}",{t}')
+                if ref:
+                    lines.append(f"#EXTVLCOPT:http-referrer={ref}")
+                lines.append(u)
+                count += 1
+
+            with open(target, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            if not quiet:
+                self.log(f"Exported {count} channels to VLC Playlist: {target}")
+            return target
+        except Exception as e:
+            self.log(f"Failed to export VLC M3U '{target}': {e}")
+            return ""
+
+    def import_config_or_m3u(self, filepath: str) -> dict:
+        """Imports either a .json configuration file or a .m3u/.m3u8 VLC playlist file and saves to persistent config."""
+        if not filepath or not os.path.isfile(filepath):
+            return {"ok": False, "message": f"File not found: {filepath}"}
+        try:
+            low = filepath.lower()
+            if low.endswith(".json"):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                saved_cat = cfg.get("channel_catalog", {})
+                imported_count = 0
+                if isinstance(saved_cat, dict):
+                    for k, ch_list in saved_cat.items():
+                        if isinstance(ch_list, list):
+                            self.channel_catalog[k] = [dict(c) for c in ch_list if isinstance(c, dict) and c.get("url")]
+                            imported_count += len(self.channel_catalog[k])
+                elif isinstance(cfg.get("channels"), list):
+                    ch_list = [dict(c) for c in cfg["channels"] if isinstance(c, dict) and c.get("url")]
+                    self.channel_catalog["custom_channels"] = ch_list
+                    self.tv_category = "custom_channels"
+                    imported_count = len(ch_list)
+
+                self.load_tv_category_or_m3u(self.tv_category, auto_play=False, source="Config Import")
+                self.save_persistent_config()
+                self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+                msg = f"Imported JSON configuration ({imported_count} channels) from {os.path.basename(filepath)}"
+                self.log(msg)
+                return {"ok": True, "count": imported_count, "message": msg}
+            else:
+                with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                parsed = self.parse_m3u_content(content, default_group="Imported M3U")
+                if not parsed:
+                    return {"ok": False, "message": "No valid stream URLs found in M3U file."}
+                existing = self.channel_catalog.get("custom_channels", [])
+                existing_urls = {c.get("url") for c in existing}
+                added = 0
+                for ch in parsed:
+                    if ch["url"] not in existing_urls:
+                        existing.append(ch)
+                        existing_urls.add(ch["url"])
+                        added += 1
+                self.channel_catalog["custom_channels"] = existing
+                self.tv_category = "custom_channels"
+                self.tv_source_title = f"Imported & Custom Channels ({len(existing)})"
+                self.tv_channels = list(existing)
+                self.tv_active_index = 0
+                self.save_persistent_config()
+                self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+                msg = f"Imported {len(parsed)} channel(s) ({added} new) from {os.path.basename(filepath)}"
+                self.log(msg)
+                return {"ok": True, "count": len(parsed), "message": msg}
+        except Exception as e:
+            err = f"Import failed: {e}"
+            self.log(err)
+            return {"ok": False, "message": err}
+
+    def add_channel(
+        self,
+        title: str,
+        url: str,
+        category: str = "pakistan_tv",
+        group: str = "Pakistan TV",
+        referrer: str = "",
+    ) -> dict:
+        """Adds a custom channel (e.g., Pakistani TV, Sports, M3U8, or YouTube) and saves to config & VLC M3U."""
+        title = (title or "").strip()
+        url = (url or "").strip()
+        if not title or not url:
+            return {"ok": False, "message": "Both Channel Name and Stream URL are required."}
+        if category not in self.channel_catalog:
+            category = "pakistan_tv"
+
+        new_ch = {
+            "title": title,
+            "group": (group or "Pakistan TV").strip(),
+            "url": url,
+        }
+        if referrer:
+            new_ch["referrer"] = referrer.strip()
+
+        cat_list = self.channel_catalog.setdefault(category, [])
+        cat_list.insert(0, new_ch)
+        self.tv_category = category
+        self.load_tv_category_or_m3u(category, filter_keyword="", auto_play=False, source="Channel Manager")
+        self.save_persistent_config()
+        self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+        self.log(f"Added channel '{title}' ({group}) to '{category}' and updated VLC M3U config.")
+        return {"ok": True, "channel": new_ch, "count": len(self.tv_channels)}
+
+    def remove_channel(self, index: int = None, url: str = "") -> dict:
+        """Removes a channel from the active channel list and persistent catalog."""
+        target_url = (url or "").strip()
+        target_title = ""
+        if index is not None and 0 <= int(index) < len(self.tv_channels):
+            removed = self.tv_channels.pop(int(index))
+            target_url = removed.get("url", "")
+            target_title = removed.get("title", "")
+        elif target_url:
+            for i, ch in enumerate(self.tv_channels):
+                if ch.get("url") == target_url:
+                    target_title = ch.get("title", "")
+                    self.tv_channels.pop(i)
+                    break
+
+        if target_url:
+            for k in list(self.channel_catalog.keys()):
+                self.channel_catalog[k] = [c for c in self.channel_catalog[k] if c.get("url") != target_url]
+            self.save_persistent_config()
+            self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+            self.log(f"Removed channel '{target_title or target_url}' and updated config.")
+            return {"ok": True, "count": len(self.tv_channels)}
+        return {"ok": False, "message": "Channel not found."}
+
+    def reset_default_channels(self) -> dict:
+        """Restores all built-in Pakistani Cricket, Pakistan TV, YouTube Cricket & Global Sports channels."""
+        self.channel_catalog = {k: [dict(ch) for ch in v] for k, v in BUILTIN_TV_CHANNELS.items()}
+        self.load_tv_category_or_m3u("cricket_pk", filter_keyword="", auto_play=False, source="Reset Defaults")
+        self.save_persistent_config()
+        self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+        self.log("Restored default Pakistani & Sports channel lineup and regenerated VLC M3U playlist.")
+        return {"ok": True, "count": len(self.tv_channels)}
+
+    def open_in_vlc(self, url_or_path: str = None) -> dict:
+        """Opens a specific channel stream URL or the full VLC .m3u playlist in VLC Media Player."""
+        target = (url_or_path or "").strip()
+        if not target:
+            self.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+            target = DEFAULT_VLC_M3U_PATH
+
+        vlc_candidates = [
+            r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+            r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+            shutil.which("vlc") or "",
+        ]
+        vlc_exe = next((p for p in vlc_candidates if p and os.path.isfile(p)), None)
+        try:
+            if vlc_exe:
+                subprocess.Popen([vlc_exe, target])
+                self.log(f"Opened in VLC Media Player: {target}")
+                return {"ok": True, "player": "VLC", "target": target}
+            else:
+                os.startfile(target)
+                self.log(f"Opened with system media handler: {target}")
+                return {"ok": True, "player": "System Default", "target": target}
+        except Exception as e:
+            err = f"Could not launch VLC / Media Player: {e}"
+            self.log(err)
+            return {"ok": False, "message": err}
+
+    def set_output_mode(self, mode: str, source: str = "User") -> str:
+        """
+        Switches output routing mode between:
+          - 'local_only': Watch/Preview inside this App ONLY (no NVR needed, enables local PC audio)
+          - 'nvr_only':   Cast to NVR RTSP (/main & /sub) ONLY (pauses local preview)
+          - 'both':       Watch inside App + Cast to NVR simultaneously
+        """
+        mode = (mode or "both").strip().lower()
+        if mode not in ("local_only", "nvr_only", "both"):
+            mode = "both"
+        old_mode = self.output_mode
+        self.output_mode = mode
+        if mode == "local_only":
+            self.preview_enabled = True
+            self.local_audio_enabled = True
+        elif mode == "nvr_only":
+            self.preview_enabled = False
+            self.local_audio_enabled = False
+        else:
+            self.preview_enabled = True
+
+        self.save_persistent_config()
+        labels = {
+            "local_only": "🖥 PREVIEW ONLY (Watch Here in App — No NVR Needed)",
+            "nvr_only": "📡 NVR ONLY (Cast to NVR — Local Preview Off)",
+            "both": "🖥 + 📡 BOTH (Watch Here in App + Cast to NVR)",
+        }
+        self.log(f"[{source}] Output Mode set to: {labels[mode]}")
+
+        # If a stream is currently active and we switched between local_only and NVR modes, restart pipeline seamlessly
+        if old_mode != mode and not self.is_paused:
+            if self.current_mode == "YOUTUBE" and self.current_url:
+                cur_pos = self.get_current_playback_sec()
+                self.start_youtube_stream(
+                    self.current_url,
+                    start_sec=cur_pos,
+                    loop=self.loop_video,
+                    source=self.active_source,
+                    _from_playlist=(len(self.playlist_items) > 1),
+                    custom_title=self.current_title.replace("[LOOP] ", ""),
+                )
+            elif self.current_mode == "FILE" and self.current_filepath:
+                cur_pos = self.get_current_playback_sec()
+                self.start_local_file_stream(
+                    self.current_filepath,
+                    start_sec=cur_pos,
+                    loop=self.loop_video,
+                    source=self.active_source,
+                )
+            elif self.current_mode == "GALLERY" and self.gallery_images:
+                self.start_gallery_slideshow(
+                    self.gallery_images,
+                    interval_sec=self.gallery_interval,
+                    shuffle=self.gallery_shuffle,
+                    source=self.active_source,
+                )
+            elif self.current_mode == "SCREEN":
+                self.start_screen_cast(self.selected_monitors, source=self.active_source)
+            elif self.current_mode == "STANDBY":
+                self.start_standby_stream(source=self.active_source)
+        return self.output_mode
+
+    def toggle_local_audio(self, force_state: bool = None) -> bool:
+        """Toggles local PC speaker audio playback when watching channels/videos inside the app."""
+        self.local_audio_enabled = (not self.local_audio_enabled) if force_state is None else bool(force_state)
+        self.save_persistent_config()
+        self.log(f"App Local Speaker Audio: {'ON (Playing on PC Speakers)' if self.local_audio_enabled else 'MUTED'}")
+        return self.local_audio_enabled
 
     def _set_diagnostic_preview_frame(
         self,
@@ -470,33 +884,37 @@ class NVRCastEngine:
         subtitle: str,
         accent_rgb: tuple = (37, 99, 235),
     ):
-        """Renders a clean 480x270 diagnostic card into _latest_preview_jpeg during PROBING, CONNECTING, or ERROR."""
+        """Renders a clean 640x360 diagnostic card into _latest_preview_jpeg during PROBING, CONNECTING, or ERROR."""
         if Image is None:
             return
         try:
-            im = Image.new("RGB", (480, 270), (15, 23, 42))
+            im = Image.new("RGB", (640, 360), (15, 23, 42))
             draw = ImageDraw.Draw(im)
-            draw.rectangle([(24, 24), (456, 246)], fill=(30, 41, 59), outline=(51, 65, 85), width=1)
-            draw.rectangle([(24, 24), (456, 30)], fill=accent_rgb)
+            draw.rectangle([(32, 32), (608, 328)], fill=(30, 41, 59), outline=(51, 65, 85), width=1)
+            draw.rectangle([(32, 32), (608, 40)], fill=accent_rgb)
             try:
-                f_badge = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 15)
-                f_title = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 17)
-                f_sub = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 13)
+                f_badge = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 18)
+                f_title = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", 21)
+                f_sub = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 15)
             except Exception:
                 f_badge = f_title = f_sub = ImageFont.load_default()
 
-            draw.text((44, 52), badge[:48], fill=accent_rgb, font=f_badge)
-            draw.text((44, 92), (title or "Stream")[:44], fill=(248, 250, 252), font=f_title)
-            # Wrap subtitle across 2 lines if needed
-            sub1 = (subtitle or "")[:58]
-            sub2 = (subtitle or "")[58:116]
-            draw.text((44, 134), sub1, fill=(148, 163, 184), font=f_sub)
+            draw.text((56, 68), badge[:52], fill=accent_rgb, font=f_badge)
+            draw.text((56, 116), (title or "Stream")[:50], fill=(248, 250, 252), font=f_title)
+            sub1 = (subtitle or "")[:66]
+            sub2 = (subtitle or "")[66:132]
+            draw.text((56, 168), sub1, fill=(148, 163, 184), font=f_sub)
             if sub2:
-                draw.text((44, 156), sub2, fill=(148, 163, 184), font=f_sub)
-            draw.text((44, 206), f"RTSP Output: rtsp://{self.lan_ip}:{self.rtsp_port}/main", fill=(100, 116, 139), font=f_sub)
+                draw.text((56, 194), sub2, fill=(148, 163, 184), font=f_sub)
+            mode_tag = (
+                "Mode: Preview Only (Local App Player)"
+                if self.output_mode == "local_only"
+                else f"RTSP Output: rtsp://{self.lan_ip}:{self.rtsp_port}/main"
+            )
+            draw.text((56, 276), mode_tag, fill=(100, 116, 139), font=f_sub)
 
             buf = io.BytesIO()
-            im.save(buf, format="JPEG", quality=82)
+            im.save(buf, format="JPEG", quality=85)
             with self._preview_lock:
                 self._latest_preview_jpeg = buf.getvalue()
         except Exception:
@@ -727,11 +1145,26 @@ class NVRCastEngine:
                 "decoded_frames": self.decoded_frames,
                 "preview_enabled": self.preview_enabled,
                 "auto_skip_offline": self.auto_skip_offline,
+                "output_mode": self.output_mode,
+                "local_audio_enabled": self.local_audio_enabled,
             },
+            "output_mode": self.output_mode,
+            "local_audio_enabled": self.local_audio_enabled,
+            "config_json_path": CONFIG_JSON_PATH,
+            "vlc_m3u_path": DEFAULT_VLC_M3U_PATH,
         }
 
     def get_tv_catalog_dict(self) -> dict:
         """Returns the full Live TV, Cricket & Sports channel lineup + GitHub M3U repository presets."""
+        cats = [
+            {"id": "cricket_pk", "name": "Pakistan Cricket & Live Sports TV"},
+            {"id": "pakistan_tv", "name": "Pakistan News & Entertainment Live TV (24+ Channels)"},
+            {"id": "youtube_cricket", "name": "Official Cricket & Pakistan News YouTube Channels"},
+            {"id": "global_sports", "name": "Global Sports TV (ESPN, Eurosport, Tennis, RedBull)"},
+            {"id": "all_builtin", "name": "All Built-in Sports & Pakistan Channels Combined"},
+        ]
+        if self.channel_catalog.get("custom_channels"):
+            cats.insert(0, {"id": "custom_channels", "name": f"My Custom & Imported Channels ({len(self.channel_catalog['custom_channels'])})"})
         return {
             "category": self.tv_category,
             "source_title": self.tv_source_title,
@@ -740,13 +1173,9 @@ class NVRCastEngine:
             "active_index": self.tv_active_index,
             "channels": self.tv_channels,
             "github_repos": GITHUB_M3U_REPOS,
-            "builtin_categories": [
-                {"id": "cricket_pk", "name": "Pakistan Cricket & Live Sports TV"},
-                {"id": "youtube_cricket", "name": "Official Cricket YouTube Channels (Auto-Play)"},
-                {"id": "pakistan_tv", "name": "Pakistan News & Entertainment Live TV"},
-                {"id": "global_sports", "name": "Global Sports TV (ESPN, Eurosport, Tennis, RedBull)"},
-                {"id": "all_builtin", "name": "All Built-in Sports & Pakistan Channels Combined"},
-            ],
+            "builtin_categories": cats,
+            "config_json_path": CONFIG_JSON_PATH,
+            "vlc_m3u_path": DEFAULT_VLC_M3U_PATH,
         }
 
     def parse_m3u_content(self, text: str, filter_keyword: str = "", default_group: str = "IPTV") -> list:
@@ -805,23 +1234,24 @@ class NVRCastEngine:
         self.tv_filter = filter_keyword.strip()
 
         cat_titles = {
+            "custom_channels": "My Custom & Imported Channels",
             "cricket_pk": "Pakistan Cricket & Live Sports TV",
-            "youtube_cricket": "Official Cricket YouTube Channels",
-            "pakistan_tv": "Pakistan News & Entertainment Live TV",
+            "youtube_cricket": "Official Cricket & Pakistan News YouTube Channels",
+            "pakistan_tv": "Pakistan News & Entertainment Live TV (24+ Channels)",
             "global_sports": "Global Sports TV Channels",
             "all_builtin": "All Built-in Sports & Pakistan Channels",
         }
 
         loaded = []
-        if target in BUILTIN_TV_CHANNELS or target == "all_builtin":
+        if target in self.channel_catalog or target in BUILTIN_TV_CHANNELS or target == "all_builtin":
             self.tv_category = target
             self.tv_source_title = cat_titles.get(target, "Live Sports & TV")
             if target == "all_builtin":
                 raw_list = []
-                for k in ("cricket_pk", "youtube_cricket", "pakistan_tv", "global_sports"):
-                    raw_list.extend(BUILTIN_TV_CHANNELS[k])
+                for k in ("custom_channels", "cricket_pk", "pakistan_tv", "youtube_cricket", "global_sports"):
+                    raw_list.extend(self.channel_catalog.get(k, BUILTIN_TV_CHANNELS.get(k, [])))
             else:
-                raw_list = list(BUILTIN_TV_CHANNELS[target])
+                raw_list = list(self.channel_catalog.get(target, BUILTIN_TV_CHANNELS.get(target, [])))
 
             for ch in raw_list:
                 if not kw or kw in f"{ch['title']} {ch.get('group', '')}".lower():
@@ -1196,8 +1626,77 @@ paths:
                 f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=#0f172a,setsar=1"
             )
 
-    def _build_dual_output_args(self, audio_map: str) -> list:
-        """Builds FFmpeg arguments to simultaneously push /main (HD), /sub (SD), and 5fps MJPEG Preview on pipe:1."""
+    def _start_local_speaker_audio_sink(self, proc_Getter_or_stop_evt=None) -> int:
+        """
+        Starts a localhost TCP listener that receives s16le 44.1kHz stereo PCM audio from FFmpeg
+        and plays it on the PC's default speakers when self.local_audio_enabled is True (and drains
+        silently when muted so FFmpeg never blocks). Returns the bound TCP port, or None if unavailable.
+        """
+        if pyaudio is None:
+            return None
+        try:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.bind(("127.0.0.1", 0))
+            srv.listen(1)
+            srv.settimeout(12.0)
+            port = srv.getsockname()[1]
+
+            def _sink_worker():
+                pa = None
+                out_stream = None
+                conn = None
+                try:
+                    conn, _ = srv.accept()
+                    pa = pyaudio.PyAudio()
+                    out_stream = pa.open(
+                        format=pyaudio.paInt16,
+                        channels=2,
+                        rate=44100,
+                        output=True,
+                        frames_per_buffer=2048,
+                    )
+                    while self.running:
+                        data = conn.recv(4096)
+                        if not data:
+                            break
+                        if self.local_audio_enabled and self.output_mode in ("local_only", "both") and not self.is_paused:
+                            try:
+                                out_stream.write(data)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        if out_stream:
+                            out_stream.stop_stream()
+                            out_stream.close()
+                    except Exception:
+                        pass
+                    try:
+                        if pa:
+                            pa.terminate()
+                    except Exception:
+                        pass
+                    try:
+                        if conn:
+                            conn.close()
+                        srv.close()
+                    except Exception:
+                        pass
+
+            threading.Thread(target=_sink_worker, daemon=True).start()
+            return port
+        except Exception:
+            return None
+
+    def _build_dual_output_args(self, audio_map: str, local_audio_port: int = None) -> list:
+        """
+        Builds FFmpeg output arguments according to self.output_mode:
+          - 'local_only': 640x360 @ 15fps MJPEG preview on pipe:1 + optional local speaker audio (NO NVR RTSP needed)
+          - 'nvr_only':   /main (HD) + /sub (SD) RTSP + 1fps heartbeat on pipe:1
+          - 'both':       /main (HD) + /sub (SD) RTSP + 640x360 @ 10fps MJPEG preview on pipe:1 + optional local speaker audio
+        """
         w, h = self.main_res.split("x")
         fps = int(self.fps)
         gop = fps * 2
@@ -1206,13 +1705,36 @@ paths:
 
         main_scale = self._scale_expr(w, h)
         sub_scale = self._scale_expr("640", "360")
-        prev_scale = self._scale_expr("480", "270")
+        prev_scale = self._scale_expr("640", "360")
 
+        local_audio_args = []
+        if local_audio_port:
+            local_audio_args = [
+                "-map", audio_map,
+                "-c:a", "pcm_s16le",
+                "-ar", "44100",
+                "-ac", "2",
+                "-f", "s16le",
+                f"tcp://127.0.0.1:{local_audio_port}",
+            ]
+
+        if self.output_mode == "local_only":
+            filter_complex = f"[0:v]fps=15,{prev_scale},format=yuvj420p[vprev]"
+            v_prev_enc = [
+                "-map", "[vprev]",
+                "-c:v", "mjpeg",
+                "-q:v", "5",
+                "-f", "image2pipe",
+                "pipe:1",
+            ]
+            return ["-filter_complex", filter_complex] + v_prev_enc + local_audio_args
+
+        prev_fps = 1 if self.output_mode == "nvr_only" else 10
         filter_complex = (
             f"[0:v]fps={fps},format=yuv420p,split=3[v1][v2][v3];"
             f"[v1]{main_scale}[vmain];"
             f"[v2]{sub_scale}[vsub];"
-            f"[v3]fps=5,{prev_scale},format=yuvj420p[vprev]"
+            f"[v3]fps={prev_fps},{prev_scale},format=yuvj420p[vprev]"
         )
 
         v_main_enc = [
@@ -1252,7 +1774,7 @@ paths:
         v_prev_enc = [
             "-map", "[vprev]",
             "-c:v", "mjpeg",
-            "-q:v", "6",
+            "-q:v", "5",
             "-f", "image2pipe",
             "pipe:1",
         ]
@@ -1268,6 +1790,7 @@ paths:
             + a_args
             + ["-f", "rtsp", "-rtsp_transport", "tcp", sub_url]
             + v_prev_enc
+            + local_audio_args
         )
 
     def start_standby_stream(self, source: str = "System Standby", preserve_error: bool = False):
@@ -1871,10 +2394,11 @@ paths:
                 )
                 audio_map = "0:a:0?"
 
+            local_aport = self._start_local_speaker_audio_sink() if self.output_mode in ("local_only", "both") else None
             cmd = (
                 [self.ffmpeg_exe, "-hide_banner", "-loglevel", "warning"]
                 + input_args
-                + self._build_dual_output_args(audio_map)
+                + self._build_dual_output_args(audio_map, local_audio_port=local_aport)
             )
 
             display_title = f"{'[LOOP] ' if self.loop_video else ''}{pl_badge}{title}"
@@ -2038,6 +2562,7 @@ paths:
             title = os.path.basename(filepath)
             loop_args = ["-stream_loop", "-1"] if self.loop_video else []
             seek_args = ["-ss", str(start_sec)] if start_sec > 0 else []
+            local_aport = self._start_local_speaker_audio_sink() if self.output_mode in ("local_only", "both") else None
             cmd = (
                 [
                     self.ffmpeg_exe,
@@ -2048,7 +2573,7 @@ paths:
                 + loop_args
                 + seek_args
                 + ["-i", filepath]
-                + self._build_dual_output_args("0:a:0?")
+                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport)
             )
             with self.stream_lock:
                 self._stop_ffmpeg_locked()

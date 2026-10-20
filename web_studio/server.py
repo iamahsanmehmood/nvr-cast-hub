@@ -4,7 +4,12 @@ import os
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
-from desktop_app.engine import NVRCastEngine, APP_VERSION
+from desktop_app.engine import (
+    NVRCastEngine,
+    APP_VERSION,
+    CONFIG_JSON_PATH,
+    DEFAULT_VLC_M3U_PATH,
+)
 
 
 class WebRemoteHandler(BaseHTTPRequestHandler):
@@ -72,6 +77,30 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
             self.end_headers()
             payload = self.engine.get_tv_catalog_dict()
             self.wfile.write(json.dumps(payload).encode("utf-8"))
+            return
+
+        if self.path.startswith("/api/export_m3u"):
+            self.engine.export_vlc_m3u(DEFAULT_VLC_M3U_PATH, quiet=True)
+            with open(DEFAULT_VLC_M3U_PATH, "rb") as f:
+                m3u_bytes = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/x-mpegurl; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="NVR_Cast_Hub_Channels_VLC.m3u"')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(m3u_bytes)
+            return
+
+        if self.path.startswith("/api/export_config"):
+            self.engine.save_persistent_config(CONFIG_JSON_PATH)
+            with open(CONFIG_JSON_PATH, "rb") as f:
+                cfg_bytes = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="nvr_cast_config.json"')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(cfg_bytes)
             return
 
         mon_checks_html = ""
@@ -413,50 +442,56 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
 
   <!-- Unified Active Session Bar + Live NVR Preview Monitor -->
   <div class="session-bar" style="align-items:stretch;">
-    <div style="display:flex;flex-direction:column;gap:6px;width:280px;flex-shrink:0;">
+    <div style="display:flex;flex-direction:column;gap:6px;width:300px;flex-shrink:0;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:0.3px;">● LIVE NVR OUTPUT PREVIEW</span>
-        <button class="btn-secondary" id="btnToggleWebPreview" style="padding:2px 8px;font-size:11px;" onclick="toggleWebPreview()">⏸ Stop Preview</button>
+        <span style="font-size:11px;font-weight:700;color:#0f172a;letter-spacing:0.3px;">● LIVE PLAYER &amp; MONITOR</span>
+        <button class="btn-secondary" id="btnToggleWebPreview" style="padding:2px 8px;font-size:11px;" onclick="toggleWebPreview()">⏸ Pause View</button>
       </div>
-      <div style="position:relative;width:280px;height:158px;background:#0f172a;border-radius:10px;overflow:hidden;border:1px solid #cbd5e1;">
+      <div style="position:relative;width:300px;height:169px;background:#0f172a;border-radius:10px;overflow:hidden;border:1px solid #cbd5e1;">
         <img id="nvrLivePreviewImg" src="/api/preview.jpg" alt="Live NVR Stream Preview" style="width:100%;height:100%;object-fit:contain;display:block;">
         <div id="nvrPreviewPausedMsg" style="display:none;position:absolute;inset:0;background:#0f172a;color:#93c5fd;font-size:12px;font-weight:600;align-items:center;justify-content:center;text-align:center;padding:14px;">
-          ⏸ Live Preview Paused<br><span style="font-size:11px;color:#94a3b8;font-weight:400;">NVR RTSP Broadcast continues at 25 FPS</span>
+          ⏸ Live Preview Paused<br><span style="font-size:11px;color:#94a3b8;font-weight:400;">Click Resume View anytime</span>
         </div>
       </div>
     </div>
     <div class="session-info" style="display:flex;flex-direction:column;justify-content:space-between;">
       <div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+          <span style="font-size:11px;font-weight:700;color:#475569;">OUTPUT MODE:</span>
+          <button class="btn-secondary" id="modeBtn_local_only" style="padding:4px 10px;font-size:11.5px;" onclick="setOutputMode('local_only')">🖥 Preview Only (Watch Here — No NVR)</button>
+          <button class="btn-secondary" id="modeBtn_both" style="padding:4px 10px;font-size:11.5px;" onclick="setOutputMode('both')">🖥 + 📡 Both (Watch + Cast to NVR)</button>
+          <button class="btn-secondary" id="modeBtn_nvr_only" style="padding:4px 10px;font-size:11.5px;" onclick="setOutputMode('nvr_only')">📡 NVR Only</button>
+          <button class="btn-secondary" id="btnLocalAudio" style="padding:4px 10px;font-size:11.5px;" onclick="toggleLocalAudio()">🔇 PC Speaker Audio: Muted</button>
+        </div>
         <div class="session-meta">
           <span class="mode-badge" id="modeTxt">{self.engine.current_mode}</span>
           <span>Started By: <strong id="sourceTxt" style="color:#0f172a;">{self.engine.active_source}</strong></span>
         </div>
         <div class="session-title" id="titleTxt">{self.engine.current_title}</div>
-        <div class="session-pos" id="timeTxt">Stream active on NVR</div>
+        <div class="session-pos" id="timeTxt">Stream active</div>
       </div>
-      <div id="healthBanner" style="margin-top:8px;padding:8px 12px;border-radius:9px;background:#ecfdf5;border:1px solid #6ee7b7;font-size:12px;font-weight:600;color:#065f46;">
-        ● RTSP Server Online • Ready to Cast
+      <div id="healthBanner" style="margin-top:6px;padding:7px 12px;border-radius:9px;background:#ecfdf5;border:1px solid #6ee7b7;font-size:12px;font-weight:600;color:#065f46;">
+        ● Ready — Select any channel or video below
       </div>
-      <div class="session-controls" style="margin-top:10px;">
+      <div class="session-controls" style="margin-top:8px;">
         <button class="btn-secondary" onclick="togglePause()" id="btnPauseResume">
           <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           <span id="pauseBtnText">Pause / Resume</span>
         </button>
-        <button class="btn-secondary" onclick="seekDelta(-30)" title="Rewind 30s">-30s</button>
         <button class="btn-secondary" onclick="seekDelta(-10)" title="Rewind 10s">-10s</button>
         <button class="btn-secondary" onclick="seekDelta(10)" title="Forward 10s">+10s</button>
-        <button class="btn-secondary" onclick="seekDelta(30)" title="Forward 30s">+30s</button>
-        <button class="btn-secondary" onclick="stepGallery(-1)" title="Previous Channel / Track">⏮ Prev Ch/Track</button>
-        <button class="btn-secondary" onclick="stepGallery(1)" title="Next Channel / Track">Next Ch/Track ⏭</button>
+        <button class="btn-secondary" onclick="stepGallery(-1)" title="Previous Channel / Track">⏮ Prev Ch</button>
+        <button class="btn-secondary" onclick="stepGallery(1)" title="Next Channel / Track">Next Ch ⏭</button>
+        <button class="btn-secondary" onclick="openInVlc('')">🎬 Open in VLC</button>
         <button class="btn-danger" onclick="stopCast()">
           <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-          Stop / Standby
+          Stop
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Live Sports, Pakistan Cricket & GitHub M3U IPTV Studio -->
+  <!-- Live Sports, Pakistan TV & Channel Configuration Manager -->
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -464,30 +499,38 @@ class WebRemoteHandler(BaseHTTPRequestHandler):
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
         </div>
         <div>
-          <h3>Live Sports, Pakistan Cricket &amp; GitHub M3U IPTV Studio</h3>
-          <p class="sub" style="margin:2px 0 0 0;">Click any channel to stream live to NVR, filter channels, load open-source GitHub IPTV repositories, or step Next / Prev Channel.</p>
+          <h3>Pakistan TV, Live Cricket &amp; Custom Channel Directory</h3>
+          <p class="sub" style="margin:2px 0 0 0;">Watch right here without an NVR, cast to your NVR, add custom channels, or export/open the playlist in VLC Media Player.</p>
         </div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <button class="btn-secondary" onclick="stepGallery(-1)">◀ Prev Channel</button>
-        <button class="btn-secondary" onclick="stepGallery(1)">Next Channel ▶</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <a href="/api/export_m3u" class="btn-secondary" style="text-decoration:none;">📤 Download VLC .M3U</a>
+        <a href="/api/export_config" class="btn-secondary" style="text-decoration:none;">📤 Download Config .JSON</a>
+        <button class="btn-secondary" onclick="openInVlc('')">🎬 Launch VLC Playlist</button>
       </div>
     </div>
 
     <div class="tv-tabs" id="tvCategoryTabs" style="margin-top:10px;">
-      <button class="tv-tab active" data-cat="cricket_pk" onclick="selectTvCategory('cricket_pk', this)">🏏 Pakistan Cricket &amp; Live Sports</button>
-      <button class="tv-tab" data-cat="youtube_cricket" onclick="selectTvCategory('youtube_cricket', this)">📺 Official Cricket YouTube (Auto-Play)</button>
-      <button class="tv-tab" data-cat="pakistan_tv" onclick="selectTvCategory('pakistan_tv', this)">🇵🇰 Pakistan News &amp; Entertainment TV</button>
-      <button class="tv-tab" data-cat="global_sports" onclick="selectTvCategory('global_sports', this)">🏆 Global Sports (ESPN / Eurosport / Tennis)</button>
-      <button class="tv-tab" data-cat="iptv_sports" onclick="selectTvCategory('iptv_sports', this)">📡 GitHub: iptv-org Sports (480+)</button>
-      <button class="tv-tab" data-cat="iptv_pk" onclick="selectTvCategory('iptv_pk', this)">📡 GitHub: iptv-org Pakistan (100+)</button>
-      <button class="tv-tab" data-cat="curated_pk_in" onclick="selectTvCategory('curated_pk_in', this)">📡 GitHub: Curated PK &amp; South Asia IPTV</button>
+      <button class="tv-tab active" data-cat="pakistan_tv" onclick="selectTvCategory('pakistan_tv', this)">🇵🇰 Pakistan News &amp; Entertainment TV (24+ Ch)</button>
+      <button class="tv-tab" data-cat="cricket_pk" onclick="selectTvCategory('cricket_pk', this)">🏏 Pakistan Cricket &amp; Live Sports</button>
+      <button class="tv-tab" data-cat="youtube_cricket" onclick="selectTvCategory('youtube_cricket', this)">📺 Official YouTube Live TV</button>
+      <button class="tv-tab" data-cat="global_sports" onclick="selectTvCategory('global_sports', this)">🏆 Global Sports</button>
+      <button class="tv-tab" data-cat="all_builtin" onclick="selectTvCategory('all_builtin', this)">📋 All Channels</button>
+      <button class="tv-tab" data-cat="iptv_pk" onclick="selectTvCategory('iptv_pk', this)">📡 GitHub Pakistan M3U</button>
+      <button class="tv-tab" data-cat="iptv_sports" onclick="selectTvCategory('iptv_sports', this)">📡 GitHub Sports M3U</button>
     </div>
 
     <div class="row" style="margin-top:8px;margin-bottom:6px;">
-      <input type="text" id="tvFilterInput" placeholder="Search / filter channels (e.g. cricket, geo, willow, star, ptv) or paste any custom .m3u / .m3u8 URL..." onkeydown="if(event.key==='Enter') loadTvFilter(false)">
-      <button class="btn-secondary" onclick="loadTvFilter(false)">Filter / Load M3U</button>
-      <button class="btn-primary" onclick="loadTvFilter(true)">Stream First Match</button>
+      <input type="text" id="tvFilterInput" placeholder="Search channels (e.g. dunya, 24 news, ary, geo, cricket, bol) or paste .m3u URL..." onkeydown="if(event.key==='Enter') loadTvFilter(false)">
+      <button class="btn-secondary" onclick="loadTvFilter(false)">🔍 Filter / Load M3U</button>
+      <button class="btn-primary" onclick="loadTvFilter(true)">▶ Play First Match</button>
+    </div>
+
+    <div class="row" style="margin-top:6px;margin-bottom:6px;background:#f8fafc;padding:8px;border-radius:8px;border:1px solid #e2e8f0;">
+      <span style="font-size:12px;font-weight:700;color:#1d4ed8;">➕ Add Channel:</span>
+      <input type="text" id="addChTitle" placeholder="Channel Name (e.g. PTV News HD)" style="max-width:210px;">
+      <input type="text" id="addChUrl" placeholder="Stream URL (.m3u8, YouTube URL, RTSP, HTTP)...">
+      <button class="btn-primary" style="padding:7px 12px;font-size:12px;" onclick="addCustomChannel()">➕ Add &amp; Save to Config</button>
     </div>
 
     <div id="tvChannelGrid" class="tv-grid"></div>
@@ -1024,6 +1067,85 @@ async function refreshStatus() {{
     }} else {{
       tSpan.textContent = `Broadcasting live on ${{d.rtsp_main}}`;
     }}
+
+    const outMode = d.output_mode || 'both';
+    ['local_only', 'both', 'nvr_only'].forEach(m => {{
+      const b = document.getElementById('modeBtn_' + m);
+      if (!b) return;
+      if (m === outMode) {{
+        b.style.background = (m === 'local_only') ? '#059669' : '#2563eb';
+        b.style.color = '#ffffff';
+        b.style.borderColor = (m === 'local_only') ? '#047857' : '#1d4ed8';
+      }} else {{
+        b.style.background = '#ffffff';
+        b.style.color = '#0f172a';
+        b.style.borderColor = '#cbd5e1';
+      }}
+    }});
+
+    const audBtn = document.getElementById('btnLocalAudio');
+    if (audBtn) {{
+      if (d.local_audio_enabled) {{
+        audBtn.textContent = '🔊 PC Speaker Audio: ON';
+        audBtn.style.background = '#059669';
+        audBtn.style.color = '#ffffff';
+      }} else {{
+        audBtn.textContent = '🔇 PC Speaker Audio: Muted';
+        audBtn.style.background = '#ffffff';
+        audBtn.style.color = '#334155';
+      }}
+    }}
+  }} catch (_) {{}}
+}}
+
+async function setOutputMode(mode) {{
+  try {{
+    await fetch('/api/output_mode', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ mode, source: 'Web Studio' }})
+    }});
+    setTimeout(refreshStatus, 250);
+  }} catch (_) {{}}
+}}
+
+async function toggleLocalAudio() {{
+  try {{
+    await fetch('/api/output_mode', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ toggle_audio: true, source: 'Web Studio' }})
+    }});
+    setTimeout(refreshStatus, 200);
+  }} catch (_) {{}}
+}}
+
+async function openInVlc(target) {{
+  try {{
+    await fetch('/api/channels', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ action: 'open_vlc', target }})
+    }});
+  }} catch (_) {{}}
+}}
+
+async function addCustomChannel() {{
+  const titleEl = document.getElementById('addChTitle');
+  const urlEl = document.getElementById('addChUrl');
+  const title = titleEl ? titleEl.value.trim() : '';
+  const url = urlEl ? urlEl.value.trim() : '';
+  if (!url) return alert('Please enter a stream URL (.m3u8, YouTube URL, RTSP, or HTTP).');
+  try {{
+    const r = await fetch('/api/channels', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ action: 'add', title, url, category: currentTvCat || 'pakistan_tv', group: 'Pakistan TV' }})
+    }});
+    const d = await r.json();
+    if (titleEl) titleEl.value = '';
+    if (urlEl) urlEl.value = '';
+    fetchTvCatalog();
   }} catch (_) {{}}
 }}
 
@@ -1278,6 +1400,59 @@ window.addEventListener('DOMContentLoaded', () => {{
             title = data.get("title", "")
             referrer = data.get("referrer", "")
             res = self.engine.test_channel_link(url=url, title=title, referrer=referrer)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        elif self.path == "/api/output_mode":
+            if data.get("toggle_audio"):
+                self.engine.toggle_local_audio()
+            elif "local_audio_enabled" in data:
+                self.engine.toggle_local_audio(force_state=bool(data["local_audio_enabled"]))
+            if "mode" in data:
+                self.engine.set_output_mode(data["mode"], source=data.get("source", "Web Studio"))
+            if WebRemoteHandler.ui_sync_callback:
+                WebRemoteHandler.ui_sync_callback()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(self.engine.get_status_dict()).encode("utf-8"))
+            return
+
+        elif self.path == "/api/channels":
+            action = data.get("action", "add")
+            if action == "add":
+                res = self.engine.add_channel(
+                    title=data.get("title", ""),
+                    url=data.get("url", ""),
+                    group=data.get("group", "Pakistan TV"),
+                    category=data.get("category", "pakistan_tv"),
+                    referrer=data.get("referrer", ""),
+                )
+            elif action == "remove":
+                res = self.engine.remove_channel(
+                    index=data.get("index"),
+                    url=data.get("url", ""),
+                )
+            elif action == "reset":
+                res = self.engine.reset_default_channels()
+            elif action == "open_vlc":
+                res = self.engine.open_in_vlc(data.get("target", ""))
+            elif action == "import":
+                res = self.engine.import_config_or_m3u(
+                    filepath_or_content=data.get("path_or_content", ""),
+                    target_category=data.get("category", "pakistan_tv"),
+                )
+            else:
+                res = {"ok": False, "message": "Unknown channel action"}
+
+            if WebRemoteHandler.ui_sync_callback:
+                WebRemoteHandler.ui_sync_callback()
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self._send_cors_headers()

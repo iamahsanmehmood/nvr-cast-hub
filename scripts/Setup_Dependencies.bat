@@ -23,7 +23,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo [3/3] Checking Node.js runtime (for YouTube 1080p JS extraction)...
+echo [3/4] Checking Node.js runtime (for YouTube 1080p JS extraction)...
 where node >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo Node.js not found on PATH. Installing via WinGet...
@@ -33,7 +33,14 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
+echo [4/4] Generating default Pakistani & Sports Channel Config + VLC Playlist...
+python -c "from desktop_app.engine import NVRCastEngine; e = NVRCastEngine(); print('Generated:', e.export_vlc_m3u()); print('Saved Config:', e.save_persistent_config())"
+
+echo.
 echo ============================================================================
-echo   SETUP COMPLETE! Run scripts\Run_Desktop_App.bat or NVR_Cast_Hub.exe
+echo   SETUP COMPLETE!
+echo   - Default Config JSON: config\nvr_cast_config.json
+echo   - Default VLC Playlist: config\NVR_Cast_Hub_Channels_VLC.m3u
+echo   Run scripts\Run_Desktop_App.bat or NVR_Cast_Hub.exe
 echo ============================================================================
 pause

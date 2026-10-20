@@ -1,0 +1,101 @@
+#EXTM3U
+#EXTINF:-1 group-title="Pakistan Cricket",Geo Super HD (1080p Live Cricket & Sports)
+http://116.90.120.149:8000/play/a021/index.m3u8
+#EXTINF:-1 group-title="Live Cricket",Willow Cricket HD (720p Live Cricket)
+http://tvsen5.aynascope.net/willowhd/index.m3u8
+#EXTINF:-1 group-title="Live Cricket",Ten Cricket Live
+http://103.151.60.162:2122/play/a0fj/index.m3u8?hls
+#EXTINF:-1 group-title="Pakistan Sports",PK Sports HD (Pakistan 720p)
+https://lbgo.bozztv.com/ssh101/ssh101/pksportshd/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan Sports",M Sports HD (Pakistan 1080p)
+https://cdn.rabta.stream/M-Sports/index.m3u8
+#EXTINF:-1 group-title="Live Cricket",Sony Sports Ten 5 Live
+http://103.151.60.162:2122/play/a028/index.m3u8?hls
+#EXTINF:-1 group-title="Live Cricket",Star Sports 2 Live
+http://103.151.60.162:2122/play/a00v/index.m3u8?hls
+#EXTINF:-1 group-title="Live Sports",Star Sports Select 1 HD (1080p)
+http://103.151.60.162:2122/play/a026/index.m3u8?hls
+#EXTINF:-1 group-title="Live Sports",Star Sports Select 2 HD (1080p)
+http://103.151.60.162:2122/play/a027/index.m3u8?hls
+#EXTINF:-1 group-title="Live Sports",DD Sports HD (1080p)
+https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/b17adfe543354fdd8d189b110617cddd/index.m3u8
+#EXTINF:-1 group-title="Live Cricket",T Sports 7 Live
+https://live-us1.thaimomo.com/live-as/chtsport-1/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan News",24 News HD (Pakistan Live)
+https://cdn4.mjunoon.tv:8087/streamtest/146M/chunks.m3u8
+#EXTINF:-1 group-title="Pakistan News",Dunya News HD (Pakistan Live)
+https://imob.dunyanews.tv/livehd/ngrp:dunyalivehd_2_all/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan News",365 News HD (Pakistan Live)
+https://cdn4.mjunoon.tv:8087/streamtest/140M/chunks.m3u8
+#EXTINF:-1 group-title="Pakistan News",Capital TV News (Pakistan Live)
+https://cdn4.mjunoon.tv:8087/streamtest/111M/chunks.m3u8
+#EXTINF:-1 group-title="Pakistan News",Lahore News HD (Pakistan)
+https://vcdn.dunyanews.tv/lahorelive/ngrp:lnews_1_all/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan News",M News HD (1080p Pakistan)
+https://cdn.rabta.stream/M-News/index.m3u8
+#EXTINF:-1 group-title="Pakistan News",Such TV News (Pakistan Live)
+https://video.primexsports.com/suchnews/live/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan News",ABN Urdu (Pakistan Live)
+https://mediaserver.abnvideos.com/streams/abnurdu.m3u8
+#EXTINF:-1 group-title="Pakistan Entertainment",Bol Entertainment HD (Pakistan)
+https://vodzong.mjunoon.tv:8087/streamtest/Channel5-159-4/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan Entertainment",aurLife HD (Pakistan Entertainment)
+http://124.109.47.101/hls/stream1.m3u8
+#EXTINF:-1 group-title="Pakistan Music",8XM Music TV (Pakistan)
+https://cdn4.mjunoon.tv:8087/streamtest/131M/chunks.m3u8
+#EXTINF:-1 group-title="Pakistan Music",JooMusic HD (Pakistan 720p)
+https://livecdn.live247stream.com/joomusic/tv/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan Islamic",Madani Channel HD (Pakistan 720p)
+http://tvsen7.aynascope.net/MadaniTV/index.m3u8
+#EXTINF:-1 group-title="Pakistan Movies",BS Film (Pakistan Movies)
+https://lbgo.bozztv.com/ssh101/ssh101/bsfilm/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan TV",BSTV Pakistan
+https://lbgo.bozztv.com/ssh101/ssh101/bstv/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan TV",Falak TV (Pakistan Live)
+https://falak.rst.ae/index.m3u8
+#EXTINF:-1 group-title="Pakistan TV",Fazal TV HD (1080p)
+http://cdn9.live247stream.com/punjabitvcanada/tv/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan Kids",Minimax Kids (Pakistan)
+https://vodzong.mjunoon.tv:8087/streamtest/disckids-157-1/playlist.m3u8
+#EXTINF:-1 group-title="Pakistan News (YT)",ARY News Official (YouTube Live)
+https://www.youtube.com/@ARYNewsTvofficial/streams
+#EXTINF:-1 group-title="Pakistan News (YT)",Geo News Official (YouTube Live)
+https://www.youtube.com/@geonews/streams
+#EXTINF:-1 group-title="Pakistan News (YT)",Hum News Official (YouTube Live)
+https://www.youtube.com/@HumNewsPakistan/streams
+#EXTINF:-1 group-title="Pakistan News (YT)",Samaa TV Official (YouTube Live)
+https://www.youtube.com/@SamaaTv/streams
+#EXTINF:-1 group-title="Pakistan News (YT)",Express News Official (YouTube Live)
+https://www.youtube.com/@ExpressNews/streams
+#EXTINF:-1 group-title="Pakistan News (YT)",Dawn News Official (YouTube Live)
+https://www.youtube.com/@dawnnews/streams
+#EXTINF:-1 group-title="Global Sports",ESPN HD (720p Live Sports)
+http://85.237.89.160:9590/usa-s/ESPN-HD/index.m3u8
+#EXTINF:-1 group-title="Global Sports",ESPN 2 HD (720p Live Sports)
+http://85.237.89.160:9590/usa-s/ESPN-2-HD/index.m3u8
+#EXTINF:-1 group-title="Global Sports",ESPNU HD (720p College & World Sports)
+http://85.237.89.160:9590/usa-s/ESPN-U-HD/index.m3u8
+#EXTINF:-1 group-title="Global Sports",Tennis Channel 2 HD (Live Tennis)
+https://mumbai-edge.smartplaytv.in/Tennis2/index.m3u8
+#EXTINF:-1 group-title="Global Sports",Unbeaten Sports Network (1080p 24/7 Sports)
+https://d1t5afz6qed3xk.cloudfront.net/Unbeaten.m3u8
+#EXTINF:-1 group-title="Global Sports",30A Golf Kingdom HD (720p Golf)
+https://30a-tv.com/feeds/vidaa/golf.m3u8
+#EXTINF:-1 group-title="YouTube Cricket",Pakistan Cricket (PCB Official — Matches & Highlights)
+https://www.youtube.com/@pakistancricket/videos
+#EXTINF:-1 group-title="YouTube Cricket",Pakistan Cricket LIVE (PCB Live Domestic & Series Streams)
+https://www.youtube.com/@pakistancricket/streams
+#EXTINF:-1 group-title="YouTube Cricket",Sports Central (Pakistan Matches & PSL Official Highlights)
+https://www.youtube.com/@SportsCentralOfficial/videos
+#EXTINF:-1 group-title="YouTube Cricket",Pakistan Super League (Official PSL Videos & Matches)
+https://www.youtube.com/@PakistanSuperLeagueOfficial/videos
+#EXTINF:-1 group-title="YouTube Cricket",A Sports HD Official (Pakistan Sports YouTube)
+https://www.youtube.com/@asportstvpk/videos
+#EXTINF:-1 group-title="YouTube Cricket",PTV Sports Official (Pakistan Sports YouTube)
+https://www.youtube.com/@ptvsportsofficial/videos
+#EXTINF:-1 group-title="YouTube Cricket",Asian Cricket Council (Asia Cup & Pakistan Classics)
+https://www.youtube.com/@AsianCricketCouncilTV/videos
+#EXTINF:-1 group-title="YouTube Cricket",ICC Official (World Cup & International Cricket)
+https://www.youtube.com/@ICC/videos
+#EXTINF:-1 group-title="YouTube Cricket",Willow Cricket Official YouTube (Match Highlights)
+https://www.youtube.com/@willow/videos

@@ -13,32 +13,45 @@ except ImportError:
     Image = None
     ImageTk = None
 
-from desktop_app.engine import NVRCastEngine, APP_VERSION
+from desktop_app.engine import (
+    NVRCastEngine,
+    APP_VERSION,
+    CONFIG_DIR,
+    CONFIG_JSON_PATH,
+    DEFAULT_VLC_M3U_PATH,
+)
 from web_studio.server import WebRemoteHandler
 
 
 class NVRCastDesktopApp:
     """
-    NVR Cast Hub v0.1.0-beta — Professional 2-Column Broadcast Studio Desktop GUI.
-      - Left Column:
-          • Live 16:9 Stream Preview Monitor (5 FPS MJPEG from FFmpeg) with Pause/Stop Preview toggle
-          • Real-Time Stream Health & Failure Diagnostic Banner (PROBING / BUFFERING / LIVE / STALLED / OFFLINE ERROR)
-          • Master Transport Deck (Prev/Next Channel or Track, Seek -10s/+10s, Pause/Resume, Standby)
-      - Right Column (Categorized Studio Workspace Tabs):
-          1. 🏏 Live TV & Cricket (Pakistan Cricket, Official Cricket YouTube, PK News/TV, Global Sports, GitHub M3U Repos, Search, Test Link)
-          2. ▶ YouTube & Video (YouTube URL/Search/Playlist/Channel, Active Queue Browser, Local Video File Caster, 24/7 Loop)
-          3. 🖼 Photo Gallery (Folder or Multi-Photo Picker, Timer, Shuffle, Crossfade, Prev/Next Slide)
-          4. 🖥 PC Monitors & Share (Multi-Monitor Desktop Mirroring + WASAPI Audio, Browser Tab/Window Share, Chrome Extension Sync)
-          5. ⚙ Settings & Logs (Resolution, Aspect Fit, FPS, Bitrate, NVR Audio Codec, System & RTSP Activity Log)
+    NVR Cast Hub v0.1.0-beta — Clean, Spacious Universal Media Player & NVR Broadcast Studio.
+      - 3-Way Output Routing Selector:
+          1. [ 🖥 Preview Only (Watch Here) ] — Watch & listen directly inside the app (no NVR needed)
+          2. [ 📡 NVR Only (Cast to NVR) ]    — Stream to NVR RTSP (/main & /sub) with local preview off
+          3. [ 🖥 + 📡 Both (App + NVR) ]     — Watch inside the app AND broadcast to NVR simultaneously
+      - Left Deck:
+          • Large 640x360 (16:9) Live Video Player & Preview Canvas + PC Speaker Audio toggle + Open in VLC
+          • Transparent Stream Health & Diagnostic Banner (PROBING / BUFFERING / LIVE / OFFLINE ERROR)
+          • Clean Transport & Channel Zapping Bar (Prev/Next Channel, Seek -10s/+10s, Pause/Resume, Stop)
+      - Right Deck (5 Clean Tabs):
+          1. 📺 Channels & Live TV (24+ Pakistani TV Channels, Live Cricket, Add/Remove Channel, Import/Export M3U & JSON, Open in VLC)
+          2. ▶ YouTube & Local Video (YouTube URL/Search/Playlist, Active Queue, Local Video File Player/Caster)
+          3. 🖼 Photo Slideshow (Picture Folder / Multi-Photo Picker, Timer, Shuffle, Smooth Crossfade)
+          4. 🖥 Screen Share & Chrome (Multi-Monitor Desktop Cast, Browser Tab Share, Chrome Extension Sync)
+          5. ⚙ Config, VLC & Settings (Default VLC .m3u & .json Config Manager, Import/Export, Stream Quality & Logs)
     """
+
+    PREVIEW_W = 640
+    PREVIEW_H = 360
 
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(
-            f"NVR Cast Hub v{APP_VERSION} — Universal RTSP Broadcast Studio (Live TV, YouTube, Gallery & Multi-Monitor)"
+            f"NVR Cast Hub v{APP_VERSION} — Live TV Player, YouTube, Media & NVR Caster"
         )
-        self.root.geometry("1240x830")
-        self.root.minsize(1060, 720)
+        self.root.geometry("1380x880")
+        self.root.minsize(1180, 760)
         self.root.configure(bg="#f1f5f9")
 
         self._configure_ttk_styles()
@@ -56,13 +69,14 @@ class NVRCastDesktopApp:
         self._active_tab_id = "tv"
         self._tab_frames = {}
         self._tab_buttons = {}
-        self._tv_status_cache = {}  # url -> status string
+        self._output_mode_btns = {}
+        self._tv_status_cache = {}
 
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._init_services, daemon=True).start()
-        self.root.after(220, self._preview_and_telemetry_tick)
+        self.root.after(200, self._preview_and_telemetry_tick)
 
     def _configure_ttk_styles(self):
         style = ttk.Style()
@@ -76,7 +90,7 @@ class NVRCastDesktopApp:
             background="#ffffff",
             foreground="#0f172a",
             fieldbackground="#ffffff",
-            rowheight=28,
+            rowheight=30,
             font=("Segoe UI", 9),
             borderwidth=0,
         )
@@ -107,16 +121,16 @@ class NVRCastDesktopApp:
         def _ask():
             try:
                 if kind == "folder":
-                    p = filedialog.askdirectory(title="Select Picture Folder for NVR Slideshow")
+                    p = filedialog.askdirectory(title="Select Picture Folder for Slideshow")
                 elif kind == "pictures":
                     files = filedialog.askopenfilenames(
-                        title="Select Picture(s) for NVR Slideshow",
+                        title="Select Picture(s) for Slideshow",
                         filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp *.webp *.gif"), ("All Files", "*.*")],
                     )
                     p = ";".join(files) if files else ""
                 else:
                     p = filedialog.askopenfilename(
-                        title="Select Video File to Stream to NVR",
+                        title="Select Video File",
                         filetypes=[("Video Files", "*.mp4 *.mkv *.avi *.mov *.ts *.webm"), ("All Files", "*.*")],
                     )
                 res_q.put(p or "")
@@ -137,12 +151,12 @@ class NVRCastDesktopApp:
             WebRemoteHandler.engine = self.engine
             httpd = ThreadingHTTPServer(("0.0.0.0", self.engine.web_port), WebRemoteHandler)
             self.engine.log(
-                f"Web Cast Studio active at http://localhost:{self.engine.web_port} "
+                f"Web Studio active at http://localhost:{self.engine.web_port} "
                 f"(and http://{self.engine.lan_ip}:{self.engine.web_port})"
             )
             httpd.serve_forever()
         except Exception as e:
-            self.engine.log(f"Web Remote port warning: {e}")
+            self.engine.log(f"Web Studio port warning: {e}")
 
     def _refresh_addresses(self):
         main_rtsp = f"rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main"
@@ -184,10 +198,10 @@ class NVRCastDesktopApp:
         return btn
 
     # =========================================================================
-    # MASTER UI LAYOUT (TOP BAR + 2-COLUMN STUDIO WORKSPACE + FOOTER TICKER)
+    # MASTER UI LAYOUT (TOP BAR + 2-COLUMN WORKSPACE + FOOTER STATUS BAR)
     # =========================================================================
     def _build_ui(self):
-        # 1. Top Studio Header & RTSP Endpoints Bar
+        # 1. Top Header Bar with Output Routing Mode Selector & RTSP / VLC Shortcuts
         header = tk.Frame(
             self.root,
             bg="#ffffff",
@@ -201,7 +215,7 @@ class NVRCastDesktopApp:
         top_row = tk.Frame(header, bg="#ffffff")
         top_row.pack(fill=tk.X)
 
-        # Studio Vector Badge
+        # Clean App Icon
         icon_cv = tk.Canvas(top_row, width=36, height=36, bg="#ffffff", highlightthickness=0)
         icon_cv.pack(side=tk.LEFT, padx=(0, 10))
         icon_cv.create_rectangle(2, 2, 34, 34, fill="#2563eb", outline="#1d4ed8", width=1)
@@ -222,40 +236,49 @@ class NVRCastDesktopApp:
 
         tk.Label(
             brand_col,
-            text="Universal RTSP Broadcast Studio  •  Hikvision / Dahua / Uniview / Reolink / ONVIF",
+            text="Live TV & Media Player  •  Watch Here in App, Open in VLC, or Broadcast to NVR",
             font=("Segoe UI", 8),
             bg="#ffffff",
             fg="#64748b",
         ).pack(anchor="w")
 
-        # Right side of top header: Web Studio Button + Endpoint Pills
+        # Right side: Web Studio + VLC Playlist Button + RTSP Copy Pills
         self._make_btn(
             top_row,
-            text="🌐 Open Web Studio (:8090) ↗",
+            text="🌐 Web Studio (:8090) ↗",
             variant="accent",
-            padx=12,
+            padx=11,
             pady=5,
             command=lambda: os.startfile(f"http://localhost:{self.engine.web_port}"),
-        ).pack(side=tk.RIGHT, padx=(8, 0))
+        ).pack(side=tk.RIGHT, padx=(6, 0))
+
+        self._make_btn(
+            top_row,
+            text="🎬 Open Channels in VLC",
+            variant="secondary",
+            padx=11,
+            pady=5,
+            command=lambda: self.engine.open_in_vlc(),
+        ).pack(side=tk.RIGHT, padx=(6, 0))
 
         self.main_rtsp_var = tk.StringVar(value=f"rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/main")
         self.sub_rtsp_var = tk.StringVar(value=f"rtsp://{self.engine.lan_ip}:{self.engine.rtsp_port}/sub")
         self.web_remote_var = tk.StringVar(value=f"http://localhost:{self.engine.web_port}")
 
         ep_bar = tk.Frame(top_row, bg="#ffffff")
-        ep_bar.pack(side=tk.RIGHT, padx=(8, 4))
-        self._add_endpoint_pill(ep_bar, "MAIN (HD):", self.main_rtsp_var)
-        self._add_endpoint_pill(ep_bar, "SUB (Grid):", self.sub_rtsp_var)
+        ep_bar.pack(side=tk.RIGHT, padx=(6, 2))
+        self._add_endpoint_pill(ep_bar, "RTSP MAIN:", self.main_rtsp_var)
+        self._add_endpoint_pill(ep_bar, "RTSP SUB:", self.sub_rtsp_var)
 
         # 2. Main 2-Column Workspace Container
         workspace = tk.Frame(self.root, bg="#f1f5f9")
         workspace.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
-        workspace.columnconfigure(0, weight=0, minsize=508)
+        workspace.columnconfigure(0, weight=0, minsize=668)
         workspace.columnconfigure(1, weight=1)
         workspace.rowconfigure(0, weight=1)
 
         # ---------------------------------------------------------------------
-        # LEFT COLUMN: LIVE PREVIEW MONITOR + HEALTH DIAGNOSTICS + TRANSPORT
+        # LEFT COLUMN: 640x360 PLAYER + 3-WAY OUTPUT SELECTOR + TRANSPORT
         # ---------------------------------------------------------------------
         left_col = tk.Frame(
             workspace,
@@ -264,7 +287,7 @@ class NVRCastDesktopApp:
             highlightthickness=1,
             padx=14,
             pady=12,
-            width=508,
+            width=668,
         )
         left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         left_col.grid_propagate(False)
@@ -272,7 +295,7 @@ class NVRCastDesktopApp:
         self._build_left_monitor_deck(left_col)
 
         # ---------------------------------------------------------------------
-        # RIGHT COLUMN: CATEGORIZED STUDIO WORKSPACE (5 TABS)
+        # RIGHT COLUMN: CLEAN 5-TAB CONTROL & CHANNEL MANAGER WORKSPACE
         # ---------------------------------------------------------------------
         right_col = tk.Frame(
             workspace,
@@ -299,13 +322,13 @@ class NVRCastDesktopApp:
 
         tk.Label(
             footer,
-            text="⚡ LATEST EVENT:",
+            text="⚡ STATUS:",
             font=("Segoe UI", 8, "bold"),
             bg="#ffffff",
             fg="#2563eb",
         ).pack(side=tk.LEFT, padx=(0, 6))
 
-        self.latest_log_var = tk.StringVar(value="Initializing Universal RTSP Server & MediaMTX...")
+        self.latest_log_var = tk.StringVar(value="Ready — Choose 'Preview Only (Watch Here)' or 'Both (App + NVR)' and click any channel.")
         tk.Label(
             footer,
             textvariable=self.latest_log_var,
@@ -317,7 +340,7 @@ class NVRCastDesktopApp:
 
         tk.Button(
             footer,
-            text="View Full Log →",
+            text="Config & Logs →",
             font=("Segoe UI", 8, "bold"),
             bg="#f8fafc",
             fg="#475569",
@@ -327,7 +350,7 @@ class NVRCastDesktopApp:
         ).pack(side=tk.RIGHT)
 
     def _add_endpoint_pill(self, parent, label_text: str, text_var: tk.StringVar):
-        box = tk.Frame(parent, bg="#f8fafc", highlightbackground="#cbd5e1", highlightthickness=1, padx=7, pady=3)
+        box = tk.Frame(parent, bg="#f8fafc", highlightbackground="#cbd5e1", highlightthickness=1, padx=6, pady=3)
         box.pack(side=tk.LEFT, padx=(0, 6))
 
         tk.Label(
@@ -341,8 +364,8 @@ class NVRCastDesktopApp:
         entry = tk.Entry(
             box,
             textvariable=text_var,
-            font=("Consolas", 9, "bold"),
-            width=25,
+            font=("Consolas", 8, "bold"),
+            width=23,
             bg="#f8fafc",
             fg="#0f172a",
             readonlybackground="#f8fafc",
@@ -359,77 +382,114 @@ class NVRCastDesktopApp:
             fg="#2563eb",
             relief=tk.SOLID,
             bd=1,
-            padx=6,
+            padx=5,
             cursor="hand2",
             command=lambda: self.copy_to_clipboard(text_var.get()),
-        ).pack(side=tk.LEFT, padx=(5, 0))
+        ).pack(side=tk.LEFT, padx=(4, 0))
 
     # =========================================================================
-    # LEFT COLUMN: LIVE MONITOR, DIAGNOSTIC BANNER & TRANSPORT CONTROLS
+    # LEFT COLUMN: 3-WAY OUTPUT MODE BAR + 640x360 PLAYER + TRANSPORT
     # =========================================================================
     def _build_left_monitor_deck(self, parent: tk.Frame):
-        # Monitor Top Header Bar
-        mon_hdr = tk.Frame(parent, bg="#ffffff")
-        mon_hdr.pack(fill=tk.X, pady=(0, 6))
-
-        self.preview_dot = tk.Label(
-            mon_hdr,
-            text="●",
-            font=("Segoe UI", 11, "bold"),
-            bg="#ffffff",
-            fg="#10b981",
+        # 1. Prominent 3-Way Output Routing Selector Bar (Watch Here vs NVR Only vs Both)
+        mode_card = tk.Frame(
+            parent,
+            bg="#f8fafc",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=8,
+            pady=6,
         )
-        self.preview_dot.pack(side=tk.LEFT, padx=(0, 4))
+        mode_card.pack(fill=tk.X, pady=(0, 8))
+
+        mode_top = tk.Frame(mode_card, bg="#f8fafc")
+        mode_top.pack(fill=tk.X, pady=(0, 5))
 
         tk.Label(
-            mon_hdr,
-            text="LIVE NVR STREAM PREVIEW MONITOR",
-            font=("Segoe UI", 9, "bold"),
-            bg="#ffffff",
-            fg="#0f172a",
+            mode_top,
+            text="OUTPUT DESTINATION (WATCH HERE IN APP OR CAST TO NVR):",
+            font=("Segoe UI", 8, "bold"),
+            bg="#f8fafc",
+            fg="#334155",
         ).pack(side=tk.LEFT)
 
+        self.audio_mute_btn = self._make_btn(
+            mode_top,
+            text="🔊 App Audio: ON" if self.engine.local_audio_enabled else "🔇 App Audio: Muted",
+            variant="success" if self.engine.local_audio_enabled else "secondary",
+            padx=8,
+            pady=2,
+            font_size=8,
+            command=self.on_toggle_local_audio,
+        )
+        self.audio_mute_btn.pack(side=tk.RIGHT, padx=(4, 0))
+
         self.preview_toggle_btn = self._make_btn(
-            mon_hdr,
-            text="⏸ Stop Preview",
+            mode_top,
+            text="⏸ Pause View",
             variant="secondary",
-            padx=9,
+            padx=8,
             pady=2,
             font_size=8,
             command=self.on_toggle_preview,
         )
         self.preview_toggle_btn.pack(side=tk.RIGHT)
 
-        # 16:9 Video Preview Canvas (480x270)
+        mode_btns_row = tk.Frame(mode_card, bg="#f8fafc")
+        mode_btns_row.pack(fill=tk.X)
+
+        modes_spec = [
+            ("local_only", "🖥  Preview Only (Watch Here — No NVR)"),
+            ("both", "🖥 + 📡  Both (Watch Here + Cast to NVR)"),
+            ("nvr_only", "📡  NVR Only (Cast to NVR)"),
+        ]
+        for m_id, m_label in modes_spec:
+            btn = tk.Button(
+                mode_btns_row,
+                text=m_label,
+                font=("Segoe UI", 9, "bold"),
+                relief=tk.SOLID,
+                bd=1,
+                padx=8,
+                pady=5,
+                cursor="hand2",
+                command=lambda mid=m_id: self.on_select_output_mode(mid),
+            )
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+            self._output_mode_btns[m_id] = btn
+
+        self._refresh_output_mode_buttons()
+
+        # 2. Large 16:9 Video Player Canvas (640x360)
         canvas_wrap = tk.Frame(
             parent,
             bg="#0f172a",
             highlightbackground="#334155",
             highlightthickness=1,
-            width=480,
-            height=270,
+            width=self.PREVIEW_W,
+            height=self.PREVIEW_H,
         )
-        canvas_wrap.pack( pady=(0, 8))
+        canvas_wrap.pack(pady=(0, 8))
         canvas_wrap.pack_propagate(False)
 
         self.preview_canvas = tk.Canvas(
             canvas_wrap,
-            width=480,
-            height=270,
+            width=self.PREVIEW_W,
+            height=self.PREVIEW_H,
             bg="#0f172a",
             highlightthickness=0,
         )
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
         self._draw_initial_preview_canvas()
 
-        # Stream Health & Diagnostic Alert Banner
+        # 3. Stream Health & Diagnostic Banner
         self.health_frame = tk.Frame(
             parent,
             bg="#ecfdf5",
             highlightbackground="#6ee7b7",
             highlightthickness=1,
             padx=10,
-            pady=7,
+            pady=6,
         )
         self.health_frame.pack(fill=tk.X, pady=(0, 8))
 
@@ -439,7 +499,7 @@ class NVRCastDesktopApp:
 
         self.health_badge = tk.Label(
             health_top,
-            text=" ● STANDBY READY ",
+            text=" ● READY ",
             font=("Segoe UI", 8, "bold"),
             bg="#059669",
             fg="#ffffff",
@@ -450,7 +510,7 @@ class NVRCastDesktopApp:
 
         self.health_title_lbl = tk.Label(
             health_top,
-            text="RTSP Server Online • Waiting for Stream",
+            text="Player & Broadcast Engine Online",
             font=("Segoe UI", 9, "bold"),
             bg="#ecfdf5",
             fg="#065f46",
@@ -460,29 +520,29 @@ class NVRCastDesktopApp:
 
         self.health_detail_lbl = tk.Label(
             self.health_frame,
-            text="Select any Live TV channel, YouTube video, Photo Gallery, or PC Monitor on the right.",
+            text="Double-click any channel on the right to watch right here or broadcast to NVR.",
             font=("Segoe UI", 8),
             bg="#ecfdf5",
             fg="#047857",
             anchor="w",
             justify=tk.LEFT,
-            wraplength=455,
+            wraplength=615,
         )
-        self.health_detail_lbl.pack(fill=tk.X, pady=(4, 0))
+        self.health_detail_lbl.pack(fill=tk.X, pady=(3, 0))
 
-        # Now Playing Card
+        # 4. Now Playing Bar
         now_card = tk.Frame(
             parent,
             bg="#f8fafc",
             highlightbackground="#e2e8f0",
             highlightthickness=1,
             padx=10,
-            pady=8,
+            pady=7,
         )
         now_card.pack(fill=tk.X, pady=(0, 8))
 
         np_row1 = tk.Frame(now_card, bg="#f8fafc")
-        np_row1.pack(fill=tk.X, pady=(0, 4))
+        np_row1.pack(fill=tk.X, pady=(0, 3))
 
         self.mode_badge = tk.Label(
             np_row1,
@@ -497,7 +557,7 @@ class NVRCastDesktopApp:
 
         self.source_label = tk.Label(
             np_row1,
-            text="Source: System Standby",
+            text="Source: Ready",
             font=("Segoe UI", 8, "bold"),
             bg="#f8fafc",
             fg="#64748b",
@@ -516,17 +576,17 @@ class NVRCastDesktopApp:
 
         self.title_label = tk.Label(
             now_card,
-            text="Standby Screen (Ready to Cast)",
+            text="Standby Screen (Select any Channel, Video, or Screen Share)",
             font=("Segoe UI", 10, "bold"),
             bg="#f8fafc",
             fg="#0f172a",
             anchor="w",
             justify=tk.LEFT,
-            wraplength=455,
+            wraplength=615,
         )
         self.title_label.pack(fill=tk.X)
 
-        # Master Transport Controls Deck
+        # 5. Player & Channel Transport Controls
         transport_card = tk.Frame(
             parent,
             bg="#ffffff",
@@ -535,25 +595,17 @@ class NVRCastDesktopApp:
             padx=8,
             pady=8,
         )
-        transport_card.pack(fill=tk.X, pady=(0, 8))
-
-        tk.Label(
-            transport_card,
-            text="MASTER TRANSPORT & CHANNEL ZAPPING",
-            font=("Segoe UI", 8, "bold"),
-            bg="#ffffff",
-            fg="#64748b",
-        ).pack(anchor="w", pady=(0, 6))
+        transport_card.pack(fill=tk.X, pady=(0, 6))
 
         t_row1 = tk.Frame(transport_card, bg="#ffffff")
         t_row1.pack(fill=tk.X, pady=(0, 6))
 
         self._make_btn(
             t_row1,
-            "⏮ Prev Ch / Track",
+            "⏮ Prev Channel / Track",
             lambda: self.engine.step_gallery_slide(-1),
             "secondary",
-            padx=9,
+            padx=10,
             pady=5,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
 
@@ -569,10 +621,10 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             t_row1,
-            "Next Ch / Track ⏭",
+            "Next Channel / Track ⏭",
             lambda: self.engine.step_gallery_slide(1),
             "secondary",
-            padx=9,
+            padx=10,
             pady=5,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
@@ -601,6 +653,16 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             t_row2,
+            "🎬 Open Current in VLC",
+            self.on_open_current_in_vlc,
+            "secondary",
+            padx=8,
+            pady=4,
+            font_size=8,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        self._make_btn(
+            t_row2,
             "■ Stop / Standby",
             lambda: threading.Thread(
                 target=self.engine.start_standby_stream, args=("Desktop App",), daemon=True
@@ -611,13 +673,13 @@ class NVRCastDesktopApp:
             font_size=8,
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
-        # Quick Telemetry Summary Footer inside Left Deck
+        # Telemetry Footer
         telemetry_row = tk.Frame(parent, bg="#ffffff")
-        telemetry_row.pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
+        telemetry_row.pack(fill=tk.X, side=tk.BOTTOM, pady=(2, 0))
 
         self.telemetry_lbl = tk.Label(
             telemetry_row,
-            text="Output: 1280x720 @ 25fps (H.264 Baseline) + 640x360 Sub  •  Audio: G.711u",
+            text="Mode: Both (Watch in App + NVR RTSP)  •  1280x720 @ 25fps",
             font=("Segoe UI", 8),
             bg="#ffffff",
             fg="#64748b",
@@ -625,73 +687,111 @@ class NVRCastDesktopApp:
         )
         self.telemetry_lbl.pack(side=tk.LEFT)
 
+    def _refresh_output_mode_buttons(self):
+        cur = self.engine.output_mode
+        for m_id, btn in self._output_mode_btns.items():
+            if m_id == cur:
+                if m_id == "local_only":
+                    btn.configure(bg="#059669", fg="#ffffff", highlightbackground="#047857")
+                elif m_id == "nvr_only":
+                    btn.configure(bg="#4f46e5", fg="#ffffff", highlightbackground="#4338ca")
+                else:
+                    btn.configure(bg="#2563eb", fg="#ffffff", highlightbackground="#1d4ed8")
+            else:
+                btn.configure(bg="#ffffff", fg="#334155", highlightbackground="#cbd5e1")
+
+        if hasattr(self, "audio_mute_btn"):
+            if self.engine.local_audio_enabled:
+                self.audio_mute_btn.configure(text="🔊 App Audio: ON", bg="#059669", fg="#ffffff")
+            else:
+                self.audio_mute_btn.configure(text="🔇 App Audio: Muted", bg="#f8fafc", fg="#475569")
+
+    def on_select_output_mode(self, mode: str):
+        self.engine.set_output_mode(mode, source="Desktop App")
+        self._refresh_output_mode_buttons()
+        if not self.engine.preview_enabled:
+            self._draw_paused_preview_canvas("📡  NVR ONLY MODE ACTIVE (Local Preview Off)")
+        else:
+            self._last_preview_bytes = None
+            self.preview_toggle_btn.configure(text="⏸ Pause View", bg="#f8fafc", fg="#0f172a")
+
+    def on_toggle_local_audio(self):
+        self.engine.toggle_local_audio()
+        self._refresh_output_mode_buttons()
+
+    def on_open_current_in_vlc(self):
+        target = self.engine.current_url or self.engine.current_filepath or DEFAULT_VLC_M3U_PATH
+        self.engine.open_in_vlc(target)
+
     def _draw_initial_preview_canvas(self):
+        w, h = self.PREVIEW_W, self.PREVIEW_H
         self.preview_canvas.delete("all")
-        self.preview_canvas.create_rectangle(0, 0, 480, 270, fill="#0f172a", outline="")
-        self.preview_canvas.create_rectangle(16, 16, 464, 254, fill="#1e293b", outline="#334155")
+        self.preview_canvas.create_rectangle(0, 0, w, h, fill="#0f172a", outline="")
+        self.preview_canvas.create_rectangle(24, 24, w - 24, h - 24, fill="#1e293b", outline="#334155")
         self.preview_canvas.create_text(
-            240,
-            115,
-            text="NVR CAST HUB — LIVE PREVIEW MONITOR",
+            w // 2,
+            h // 2 - 24,
+            text="NVR CAST HUB — LIVE PLAYER & PREVIEW MONITOR",
             fill="#f8fafc",
-            font=("Segoe UI", 11, "bold"),
+            font=("Segoe UI", 12, "bold"),
         )
         self.preview_canvas.create_text(
-            240,
-            148,
-            text="Starting RTSP Server & Standby Stream...",
+            w // 2,
+            h // 2 + 12,
+            text="Select 'Preview Only (Watch Here)' or 'Both' above and click any channel!",
             fill="#38bdf8",
+            font=("Segoe UI", 10),
+        )
+
+    def _draw_paused_preview_canvas(self, headline: str = "⏸  LIVE PREVIEW PAUSED BY USER"):
+        w, h = self.PREVIEW_W, self.PREVIEW_H
+        self.preview_canvas.delete("all")
+        self.preview_canvas.create_rectangle(0, 0, w, h, fill="#0f172a", outline="")
+        self.preview_canvas.create_rectangle(28, 28, w - 28, h - 28, fill="#1e293b", outline="#334155")
+        self.preview_canvas.create_text(
+            w // 2,
+            h // 2 - 30,
+            text=headline,
+            fill="#f8fafc",
+            font=("Segoe UI", 12, "bold"),
+        )
+        self.preview_canvas.create_text(
+            w // 2,
+            h // 2 + 6,
+            text="NVR RTSP Broadcast (/main & /sub) continues running at full speed.",
+            fill="#93c5fd",
+            font=("Segoe UI", 10),
+        )
+        self.preview_canvas.create_text(
+            w // 2,
+            h // 2 + 36,
+            text="Click 'Preview Only' or 'Both' above anytime to watch live video here.",
+            fill="#94a3b8",
             font=("Segoe UI", 9),
         )
 
     def on_toggle_preview(self):
         self.engine.preview_enabled = not self.engine.preview_enabled
         if self.engine.preview_enabled:
-            self.preview_toggle_btn.configure(text="⏸ Stop Preview", bg="#f8fafc", fg="#0f172a")
-            self.preview_dot.configure(fg="#10b981")
+            self.preview_toggle_btn.configure(text="⏸ Pause View", bg="#f8fafc", fg="#0f172a")
             self._last_preview_bytes = None
         else:
-            self.preview_toggle_btn.configure(text="▶ Resume Preview", bg="#eff6ff", fg="#1d4ed8")
-            self.preview_dot.configure(fg="#94a3b8")
-            self.preview_canvas.delete("all")
-            self.preview_canvas.create_rectangle(0, 0, 480, 270, fill="#0f172a", outline="")
-            self.preview_canvas.create_rectangle(24, 24, 456, 246, fill="#1e293b", outline="#334155")
-            self.preview_canvas.create_text(
-                240,
-                110,
-                text="⏸  LIVE PREVIEW PAUSED BY USER",
-                fill="#f8fafc",
-                font=("Segoe UI", 12, "bold"),
-            )
-            self.preview_canvas.create_text(
-                240,
-                142,
-                text="NVR RTSP Broadcast (/main & /sub) continues running at full 25 FPS.",
-                fill="#93c5fd",
-                font=("Segoe UI", 9),
-            )
-            self.preview_canvas.create_text(
-                240,
-                168,
-                text="Click '▶ Resume Preview' above anytime to view live video.",
-                fill="#94a3b8",
-                font=("Segoe UI", 8),
-            )
+            self.preview_toggle_btn.configure(text="▶ Resume View", bg="#eff6ff", fg="#1d4ed8")
+            self._draw_paused_preview_canvas()
 
     # =========================================================================
-    # RIGHT COLUMN: CATEGORIZED 5-TAB STUDIO WORKSPACE
+    # RIGHT COLUMN: 5-TAB CHANNEL MANAGER & MEDIA STUDIO WORKSPACE
     # =========================================================================
     def _build_right_tabbed_workspace(self, parent: tk.Frame):
-        # Custom Tab Navigation Bar
         nav_bar = tk.Frame(parent, bg="#f1f5f9", padx=4, pady=4)
-        nav_bar.pack(fill=tk.X, pady=(0, 12))
+        nav_bar.pack(fill=tk.X, pady=(0, 10))
 
         tabs_spec = [
-            ("tv", "🏏  Live TV & Cricket"),
+            ("tv", "📺  Channels & Live TV"),
             ("youtube", "▶  YouTube & Video"),
-            ("gallery", "🖼  Photo Gallery"),
-            ("monitors", "🖥  PC Monitors & Share"),
-            ("settings", "⚙  Settings & Logs"),
+            ("gallery", "🖼  Photo Slideshow"),
+            ("monitors", "🖥  Screen Share"),
+            ("settings", "⚙  Config, VLC & Settings"),
         ]
 
         for tab_id, tab_title in tabs_spec:
@@ -705,7 +805,7 @@ class NVRCastDesktopApp:
                 activeforeground="#ffffff",
                 relief=tk.FLAT,
                 bd=0,
-                padx=12,
+                padx=10,
                 pady=7,
                 cursor="hand2",
                 command=lambda tid=tab_id: self._switch_tab(tid),
@@ -713,7 +813,6 @@ class NVRCastDesktopApp:
             btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
             self._tab_buttons[tab_id] = btn
 
-        # Tab Content Host Container
         self.tab_host = tk.Frame(parent, bg="#ffffff")
         self.tab_host.pack(fill=tk.BOTH, expand=True)
 
@@ -743,24 +842,24 @@ class NVRCastDesktopApp:
                 btn.configure(bg="#f1f5f9", fg="#334155")
 
     # -------------------------------------------------------------------------
-    # TAB 1: LIVE TV, PAKISTAN CRICKET & GITHUB M3U IPTV STUDIO
+    # TAB 1: CHANNELS & LIVE TV (PAKISTAN TV, CRICKET, ADD/IMPORT/EXPORT/VLC)
     # -------------------------------------------------------------------------
     def _build_tab_live_tv(self, parent: tk.Frame):
         hdr = tk.Frame(parent, bg="#ffffff")
-        hdr.pack(fill=tk.X, pady=(0, 8))
+        hdr.pack(fill=tk.X, pady=(0, 6))
 
         tk.Label(
             hdr,
-            text="LIVE SPORTS, PAKISTAN CRICKET & GITHUB M3U IPTV DIRECTORY",
+            text="PAKISTAN TV, LIVE CRICKET & CUSTOM CHANNEL DIRECTORY",
             font=("Segoe UI", 10, "bold"),
             bg="#ffffff",
             fg="#0f172a",
         ).pack(side=tk.LEFT)
 
-        self.auto_skip_var = tk.BooleanVar(value=True)
+        self.auto_skip_var = tk.BooleanVar(value=self.engine.auto_skip_offline)
         tk.Checkbutton(
             hdr,
-            text="Auto-Skip Offline Channels",
+            text="Auto-Skip Offline",
             variable=self.auto_skip_var,
             font=("Segoe UI", 8, "bold"),
             bg="#ffffff",
@@ -770,57 +869,59 @@ class NVRCastDesktopApp:
             command=self.on_toggle_auto_skip,
         ).pack(side=tk.RIGHT)
 
-        # Quick Category Pills Row
+        # Quick Category Filter Buttons
         pills_row = tk.Frame(parent, bg="#ffffff")
-        pills_row.pack(fill=tk.X, pady=(0, 8))
+        pills_row.pack(fill=tk.X, pady=(0, 6))
 
         quick_cats = [
-            ("cricket_pk", "🇵🇰 PK Cricket & Sports"),
-            ("youtube_cricket", "▶ Official Cricket YT"),
-            ("pakistan_tv", "📺 Pakistan News & TV"),
+            ("pakistan_tv", "🇵🇰 Pakistan TV (24+ Ch)"),
+            ("cricket_pk", "🏏 Cricket & Sports"),
+            ("youtube_cricket", "▶ YouTube Live TV"),
             ("global_sports", "🌍 Global Sports"),
+            ("all_builtin", "📋 All Built-In"),
+            ("iptv_pk", "📦 GitHub PK M3U"),
             ("iptv_sports", "📦 GitHub Sports M3U"),
-            ("iptv_pk", "📦 GitHub Pakistan M3U"),
         ]
         for cat_id, cat_label in quick_cats:
             self._make_btn(
                 pills_row,
                 cat_label,
                 lambda cid=cat_id: self.on_quick_select_tv_cat(cid),
-                variant="accent" if cat_id == "cricket_pk" else "secondary",
-                padx=8,
+                variant="accent" if cat_id in ("pakistan_tv", "cricket_pk") else "secondary",
+                padx=7,
                 pady=3,
                 font_size=8,
-            ).pack(side=tk.LEFT, padx=(0, 5))
+            ).pack(side=tk.LEFT, padx=(0, 4))
 
-        # Source Selector + Filter / Custom M3U Input Row
-        filter_row = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=7)
-        filter_row.pack(fill=tk.X, pady=(0, 8))
+        # Source Selector + Search Filter Row
+        filter_row = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=6)
+        filter_row.pack(fill=tk.X, pady=(0, 6))
 
-        tk.Label(filter_row, text="Source:", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#475569").pack(side=tk.LEFT)
+        tk.Label(filter_row, text="List:", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#475569").pack(side=tk.LEFT)
 
         self.tv_source_options = [
-            ("cricket_pk", "Pakistan Cricket & Live Sports TV (Geo Super, Willow, Ten, Star, DD)"),
-            ("youtube_cricket", "Official Cricket YouTube Channels (PCB, Sports Central, PSL, ACC)"),
-            ("pakistan_tv", "Pakistan News & Entertainment Live TV (24 News, Dunya, Capital, Bol, 8XM)"),
-            ("global_sports", "Global Live Sports TV (ESPN, ESPN2, ESPNU, Tennis Channel)"),
-            ("all_builtin", "All Built-in Sports & Pakistan Channels Combined"),
-            ("iptv_sports", "GitHub Repo: iptv-org Sports (480+ Global Sports Channels)"),
-            ("iptv_pk", "GitHub Repo: iptv-org Pakistan (PK Channels M3U)"),
-            ("curated_pk_in", "GitHub Repo: Curated Pakistan & South Asia IPTV"),
+            ("cricket_pk", "Pakistan Cricket & Live Sports TV"),
+            ("pakistan_tv", "Pakistan News, Entertainment, Music & Movies (24+ Channels)"),
+            ("youtube_cricket", "Official Cricket & Pakistani News YouTube Live Channels"),
+            ("global_sports", "Global Sports TV (ESPN, Eurosport, Tennis, RedBull)"),
+            ("all_builtin", "All Built-in Pakistani & Sports Channels Combined"),
+            ("custom_channels", "My Added & Imported Custom Channels"),
+            ("iptv_pk", "GitHub Repo: iptv-org Pakistan Channels M3U"),
+            ("iptv_sports", "GitHub Repo: iptv-org Global Sports M3U (480+ Ch)"),
+            ("curated_pk_in", "GitHub Repo: South Asia & Pakistan Curated M3U"),
             ("freetv_global", "GitHub Repo: Free-TV Open-Source Global IPTV"),
         ]
         self.tv_source_combo = ttk.Combobox(
             filter_row,
             values=[label for _, label in self.tv_source_options],
-            width=36,
+            width=34,
             state="readonly",
         )
         self.tv_source_combo.current(0)
-        self.tv_source_combo.pack(side=tk.LEFT, padx=(5, 10))
+        self.tv_source_combo.pack(side=tk.LEFT, padx=(5, 8))
         self.tv_source_combo.bind("<<ComboboxSelected>>", lambda e: self.on_load_tv_source(auto_play=False))
 
-        tk.Label(filter_row, text="Search / .M3U URL:", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#475569").pack(
+        tk.Label(filter_row, text="Search / M3U:", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#475569").pack(
             side=tk.LEFT
         )
         self.tv_filter_entry = tk.Entry(
@@ -831,16 +932,90 @@ class NVRCastDesktopApp:
             relief=tk.SOLID,
             bd=1,
         )
-        self.tv_filter_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3, padx=(5, 6))
+        self.tv_filter_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2, padx=(4, 6))
         self.tv_filter_entry.bind("<Return>", lambda e: self.on_load_tv_source(auto_play=False))
 
         self._make_btn(
             filter_row,
-            "🔍 Filter / Load M3U",
+            "🔍 Filter / Load",
             lambda: self.on_load_tv_source(auto_play=False),
             "secondary",
+            padx=8,
+            pady=2,
+            font_size=8,
+        ).pack(side=tk.LEFT)
+
+        # Inline Quick "Add Channel" + Import/Export Bar
+        add_box = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=6)
+        add_box.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(add_box, text="➕ Add Channel:", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#1d4ed8").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+
+        self.add_ch_title_entry = tk.Entry(
+            add_box,
+            font=("Segoe UI", 9),
+            width=18,
+            bg="#ffffff",
+            fg="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
+        )
+        self.add_ch_title_entry.insert(0, "Channel Name")
+        self.add_ch_title_entry.bind(
+            "<FocusIn>",
+            lambda e: self.add_ch_title_entry.delete(0, tk.END)
+            if self.add_ch_title_entry.get() == "Channel Name"
+            else None,
+        )
+        self.add_ch_title_entry.pack(side=tk.LEFT, ipady=2, padx=(0, 4))
+
+        self.add_ch_url_entry = tk.Entry(
+            add_box,
+            font=("Segoe UI", 9),
+            bg="#ffffff",
+            fg="#0f172a",
+            relief=tk.SOLID,
+            bd=1,
+        )
+        self.add_ch_url_entry.insert(0, "Stream URL (.m3u8, YouTube, RTSP, HTTP)")
+        self.add_ch_url_entry.bind(
+            "<FocusIn>",
+            lambda e: self.add_ch_url_entry.delete(0, tk.END)
+            if self.add_ch_url_entry.get().startswith("Stream URL")
+            else None,
+        )
+        self.add_ch_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2, padx=(0, 6))
+        self.add_ch_url_entry.bind("<Return>", lambda e: self.on_add_custom_channel())
+
+        self._make_btn(
+            add_box,
+            "➕ Add & Save",
+            self.on_add_custom_channel,
+            "primary",
             padx=9,
-            pady=3,
+            pady=2,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        self._make_btn(
+            add_box,
+            "📥 Import .M3U/.JSON",
+            self.on_import_channels_dialog,
+            "accent",
+            padx=8,
+            pady=2,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        self._make_btn(
+            add_box,
+            "📤 Export VLC .M3U",
+            self.on_export_vlc_m3u_dialog,
+            "secondary",
+            padx=8,
+            pady=2,
             font_size=8,
         ).pack(side=tk.LEFT)
 
@@ -857,14 +1032,14 @@ class NVRCastDesktopApp:
             selectmode="browse",
         )
         self.tv_tree.heading("num", text="#")
-        self.tv_tree.heading("title", text="Channel Name (Double-Click to Stream)")
+        self.tv_tree.heading("title", text="Channel Name (Double-Click to Watch / Cast)")
         self.tv_tree.heading("group", text="Category / Network")
-        self.tv_tree.heading("status", text="Stream Health / Type")
+        self.tv_tree.heading("status", text="Stream Type / Status")
 
-        self.tv_tree.column("num", width=44, anchor="center", stretch=False)
-        self.tv_tree.column("title", width=270, anchor="w")
-        self.tv_tree.column("group", width=165, anchor="w")
-        self.tv_tree.column("status", width=165, anchor="w")
+        self.tv_tree.column("num", width=42, anchor="center", stretch=False)
+        self.tv_tree.column("title", width=265, anchor="w")
+        self.tv_tree.column("group", width=155, anchor="w")
+        self.tv_tree.column("status", width=155, anchor="w")
 
         tv_scroll = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.tv_tree.yview)
         self.tv_tree.configure(yscrollcommand=tv_scroll.set)
@@ -879,37 +1054,37 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             act_row,
-            "▶  Stream Selected Channel to NVR",
+            "▶  Watch / Play Selected Channel",
             self.on_play_selected_tv_channel,
             "primary",
-            padx=16,
+            padx=14,
             pady=6,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         self._make_btn(
             act_row,
-            "⚡ Test Selected Channel Link",
+            "🎬 Open in VLC",
+            self.on_open_selected_tv_in_vlc,
+            "secondary",
+            padx=10,
+            pady=6,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            act_row,
+            "⚡ Test Link",
             self.on_test_selected_tv_channel,
             "accent",
-            padx=12,
+            padx=10,
             pady=6,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         self._make_btn(
             act_row,
-            "⏮ Prev Channel",
-            lambda: self.engine.step_gallery_slide(-1),
-            "secondary",
-            padx=10,
-            pady=6,
-        ).pack(side=tk.LEFT, padx=(0, 4))
-
-        self._make_btn(
-            act_row,
-            "Next Channel ⏭",
-            lambda: self.engine.step_gallery_slide(1),
-            "secondary",
-            padx=10,
+            "🗑 Remove",
+            self.on_remove_selected_tv_channel,
+            "danger",
+            padx=9,
             pady=6,
         ).pack(side=tk.LEFT)
 
@@ -925,12 +1100,12 @@ class NVRCastDesktopApp:
         self._refresh_tv_channel_tree()
 
     # -------------------------------------------------------------------------
-    # TAB 2: YOUTUBE, PLAYLISTS, WEB STREAMS & LOCAL VIDEO CASTER
+    # TAB 2: YOUTUBE, PLAYLISTS, WEB STREAMS & LOCAL VIDEO PLAYER/CASTER
     # -------------------------------------------------------------------------
     def _build_tab_youtube(self, parent: tk.Frame):
         tk.Label(
             parent,
-            text="YOUTUBE VIDEO, PLAYLIST / CHANNEL QUEUE & LOCAL MOVIE CASTER",
+            text="YOUTUBE VIDEO, PLAYLIST / CHANNEL QUEUE & LOCAL VIDEO PLAYER",
             font=("Segoe UI", 10, "bold"),
             bg="#ffffff",
             fg="#0f172a",
@@ -963,14 +1138,14 @@ class NVRCastDesktopApp:
         self.yt_entry.bind("<Return>", lambda e: self.on_stream_youtube())
 
         self._make_btn(row1, "📋 Paste", self.paste_clipboard, "secondary", padx=10, pady=5).pack(side=tk.LEFT, padx=(0, 6))
-        self._make_btn(row1, "▶ Stream URL / Playlist", self.on_stream_youtube, "primary", padx=14, pady=5).pack(
+        self._make_btn(row1, "▶ Play / Stream URL", self.on_stream_youtube, "primary", padx=14, pady=5).pack(
             side=tk.LEFT
         )
 
         row2 = tk.Frame(yt_box, bg="#f8fafc")
         row2.pack(fill=tk.X)
 
-        self.loop_video_var = tk.BooleanVar(value=False)
+        self.loop_video_var = tk.BooleanVar(value=self.engine.loop_video)
         tk.Checkbutton(
             row2,
             text="⟲  Loop Video / Playlist 24/7",
@@ -985,14 +1160,13 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             row2,
-            "📂 Browse & Stream Local Video File (.mp4, .mkv, .avi, .mov)...",
+            "📂 Browse Local Video File (.mp4, .mkv, .avi, .mov)...",
             self.on_stream_file,
             "accent",
             padx=12,
             pady=4,
         ).pack(side=tk.LEFT)
 
-        # Active Playlist / Queue Browser Table
         pl_hdr = tk.Frame(parent, bg="#ffffff")
         pl_hdr.pack(fill=tk.X, pady=(2, 4))
 
@@ -1031,12 +1205,12 @@ class NVRCastDesktopApp:
         self.pl_tree.bind("<Double-1>", lambda e: self.on_jump_playlist_item())
 
     # -------------------------------------------------------------------------
-    # TAB 3: PHOTO GALLERY & SLIDESHOW STUDIO
+    # TAB 3: PHOTO GALLERY & SLIDESHOW
     # -------------------------------------------------------------------------
     def _build_tab_gallery(self, parent: tk.Frame):
         tk.Label(
             parent,
-            text="PICTURE & PHOTO GALLERY SLIDESHOW STUDIO",
+            text="PICTURE & PHOTO GALLERY SLIDESHOW",
             font=("Segoe UI", 10, "bold"),
             bg="#ffffff",
             fg="#0f172a",
@@ -1044,7 +1218,7 @@ class NVRCastDesktopApp:
 
         tk.Label(
             parent,
-            text="Broadcast a single static picture or an entire photo folder to your NVR with custom timer, shuffle, and smooth crossfades.",
+            text="Display a single static picture or an entire photo folder with custom timer, shuffle, and smooth crossfades.",
             font=("Segoe UI", 8),
             bg="#ffffff",
             fg="#64748b",
@@ -1064,7 +1238,7 @@ class NVRCastDesktopApp:
         path_row = tk.Frame(gal_card, bg="#f8fafc")
         path_row.pack(fill=tk.X, pady=(0, 10))
 
-        self.gal_folder_var = tk.StringVar(value="")
+        self.gal_folder_var = tk.StringVar(value=self.engine.gallery_folder)
         self.gal_entry = tk.Entry(
             path_row,
             textvariable=self.gal_folder_var,
@@ -1106,10 +1280,10 @@ class NVRCastDesktopApp:
             bd=1,
         )
         self.gal_timer_spin.delete(0, tk.END)
-        self.gal_timer_spin.insert(0, "5")
+        self.gal_timer_spin.insert(0, str(self.engine.gallery_interval))
         self.gal_timer_spin.pack(side=tk.LEFT, ipady=2, padx=(6, 16))
 
-        self.gal_shuffle_var = tk.BooleanVar(value=False)
+        self.gal_shuffle_var = tk.BooleanVar(value=self.engine.gallery_shuffle)
         tk.Checkbutton(
             opt_row,
             text="⇄  Shuffle Photos",
@@ -1121,7 +1295,7 @@ class NVRCastDesktopApp:
             activebackground="#f8fafc",
         ).pack(side=tk.LEFT, padx=(0, 14))
 
-        self.gal_transition_var = tk.BooleanVar(value=True)
+        self.gal_transition_var = tk.BooleanVar(value=self.engine.gallery_transition)
         tk.Checkbutton(
             opt_row,
             text="✨ Smooth Crossfade",
@@ -1139,7 +1313,7 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             ctl_row,
-            "▶  Start Photo Slideshow Broadcast",
+            "▶  Start Photo Slideshow",
             self.on_start_gallery_slideshow,
             "primary",
             padx=16,
@@ -1175,7 +1349,7 @@ class NVRCastDesktopApp:
         self.gal_status_lbl.pack(fill=tk.X, pady=(4, 0))
 
     # -------------------------------------------------------------------------
-    # TAB 4: PC MONITORS, BROWSER SHARE & CHROME EXTENSION
+    # TAB 4: SCREEN SHARE & CHROME EXTENSION
     # -------------------------------------------------------------------------
     def _build_tab_monitors(self, parent: tk.Frame):
         tk.Label(
@@ -1237,7 +1411,7 @@ class NVRCastDesktopApp:
         opt_row = tk.Frame(mon_box, bg="#f8fafc")
         opt_row.pack(fill=tk.X, pady=(0, 10))
 
-        self.pc_audio_var = tk.BooleanVar(value=True)
+        self.pc_audio_var = tk.BooleanVar(value=self.engine.capture_pc_audio)
         tk.Checkbutton(
             opt_row,
             text="🔊 Stream PC Speaker Audio (WASAPI Loopback)",
@@ -1249,7 +1423,7 @@ class NVRCastDesktopApp:
             command=self.on_settings_change,
         ).pack(side=tk.LEFT, padx=(0, 16))
 
-        self.cursor_var = tk.BooleanVar(value=True)
+        self.cursor_var = tk.BooleanVar(value=self.engine.show_cursor)
         tk.Checkbutton(
             opt_row,
             text="🖱 Show Mouse Pointer",
@@ -1263,14 +1437,13 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             mon_box,
-            "▶  Mirror Selected Monitor(s) to NVR Now",
+            "▶  Start Desktop Screen Share",
             self.on_start_desktop_mirror,
             "primary",
             padx=16,
             pady=6,
         ).pack(anchor="w")
 
-        # Browser & Chrome Extension Card
         web_box = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=12, pady=12)
         web_box.pack(fill=tk.X)
 
@@ -1284,7 +1457,7 @@ class NVRCastDesktopApp:
 
         tk.Label(
             web_box,
-            text="• Click below to share a specific browser tab or application window (Meeting Mode), or use the NVR Cast Hub Chrome Extension on any HTML5 video player.",
+            text="• Share a browser tab or application window with audio, or use the Chrome Extension on any video player.",
             font=("Segoe UI", 8),
             bg="#f8fafc",
             fg="#475569",
@@ -1294,7 +1467,7 @@ class NVRCastDesktopApp:
 
         self._make_btn(
             web_box,
-            "🌐 Share Browser Tab / Window + Audio (Meeting Mode) ↗",
+            "🌐 Share Browser Tab / Window + Audio ↗",
             lambda: os.startfile(f"http://localhost:{self.engine.web_port}/?autoshare=1"),
             "accent",
             padx=14,
@@ -1302,17 +1475,102 @@ class NVRCastDesktopApp:
         ).pack(anchor="w")
 
     # -------------------------------------------------------------------------
-    # TAB 5: STREAM QUALITY SETTINGS & ACTIVITY LOG
+    # TAB 5: CONFIG, VLC SETUP, IMPORT/EXPORT & STREAM QUALITY SETTINGS
     # -------------------------------------------------------------------------
     def _build_tab_settings(self, parent: tk.Frame):
         tk.Label(
             parent,
-            text="RTSP VIDEO / AUDIO ENCODING & SYSTEM ACTIVITY LOG",
+            text="CONFIGURATION FILES, VLC PLAYLIST SETUP & STREAM QUALITY",
             font=("Segoe UI", 10, "bold"),
             bg="#ffffff",
             fg="#0f172a",
+        ).pack(anchor="w", pady=(0, 6))
+
+        # 1. Default Config & VLC Playlist Manager Card
+        cfg_card = tk.Frame(parent, bg="#f8fafc", highlightbackground="#cbd5e1", highlightthickness=1, padx=12, pady=10)
+        cfg_card.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Label(
+            cfg_card,
+            text="DEFAULT VLC PLAYLIST (.M3U) & PERSISTENT CHANNEL CONFIGURATION (.JSON)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#f8fafc",
+            fg="#1d4ed8",
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            cfg_card,
+            text=f"• VLC M3U Playlist:  {DEFAULT_VLC_M3U_PATH}\n• App Config JSON:  {CONFIG_JSON_PATH}",
+            font=("Consolas", 8),
+            bg="#f8fafc",
+            fg="#334155",
+            justify=tk.LEFT,
         ).pack(anchor="w", pady=(0, 8))
 
+        cfg_btns = tk.Frame(cfg_card, bg="#f8fafc")
+        cfg_btns.pack(fill=tk.X)
+
+        self._make_btn(
+            cfg_btns,
+            "🎬 Open Playlist in VLC",
+            lambda: self.engine.open_in_vlc(DEFAULT_VLC_M3U_PATH),
+            "primary",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            cfg_btns,
+            "📥 Import .M3U / .JSON",
+            self.on_import_channels_dialog,
+            "accent",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            cfg_btns,
+            "📤 Export VLC .M3U...",
+            self.on_export_vlc_m3u_dialog,
+            "secondary",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            cfg_btns,
+            "📤 Export Config .JSON...",
+            self.on_export_config_json_dialog,
+            "secondary",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            cfg_btns,
+            "📂 Open Config Folder",
+            lambda: os.startfile(CONFIG_DIR),
+            "secondary",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._make_btn(
+            cfg_btns,
+            "↺ Reset Defaults",
+            self.on_reset_default_channels,
+            "warning",
+            padx=10,
+            pady=5,
+            font_size=8,
+        ).pack(side=tk.LEFT)
+
+        # 2. Stream Encoding Settings Card
         s_card = tk.Frame(parent, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=12, pady=10)
         s_card.pack(fill=tk.X, pady=(0, 10))
 
@@ -1326,7 +1584,7 @@ class NVRCastDesktopApp:
             width=11,
             state="readonly",
         )
-        self.res_combo.set("1280x720")
+        self.res_combo.set(self.engine.main_res)
         self.res_combo.pack(side=tk.LEFT, padx=(6, 16))
         self.res_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
@@ -1348,7 +1606,7 @@ class NVRCastDesktopApp:
             width=5,
             state="readonly",
         )
-        self.fps_combo.set("25")
+        self.fps_combo.set(str(self.engine.fps))
         self.fps_combo.pack(side=tk.LEFT, padx=(6, 0))
         self.fps_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
@@ -1362,34 +1620,34 @@ class NVRCastDesktopApp:
             width=9,
             state="readonly",
         )
-        self.bitrate_combo.set("1800k")
+        self.bitrate_combo.set(self.engine.video_bitrate)
         self.bitrate_combo.pack(side=tk.LEFT, padx=(6, 16))
         self.bitrate_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        tk.Label(r2, text="NVR Audio Codec:", font=("Segoe UI", 9, "bold"), bg="#f8fafc", fg="#334155").pack(side=tk.LEFT)
+        tk.Label(r2, text="RTSP Audio Format:", font=("Segoe UI", 9, "bold"), bg="#f8fafc", fg="#334155").pack(side=tk.LEFT)
         self.audio_combo = ttk.Combobox(
             r2,
             values=[
-                "pcm_mulaw (G.711u CCTV)",
-                "pcm_alaw (G.711a CCTV)",
+                "pcm_mulaw (G.711u Standard)",
+                "pcm_alaw (G.711a Standard)",
                 "aac (16kHz Mono)",
                 "aac_hq (44.1kHz Stereo)",
-                "none (Mute)",
+                "none (Mute RTSP)",
             ],
-            width=23,
+            width=25,
             state="readonly",
         )
-        self.audio_combo.set("pcm_mulaw (G.711u CCTV)")
+        self.audio_combo.set("pcm_mulaw (G.711u Standard)")
         self.audio_combo.pack(side=tk.LEFT, padx=(6, 0))
         self.audio_combo.bind("<<ComboboxSelected>>", self.on_settings_change)
 
-        # System Activity Log Header & Box
+        # 3. System Activity Log
         log_hdr = tk.Frame(parent, bg="#ffffff")
         log_hdr.pack(fill=tk.X, pady=(0, 4))
 
         tk.Label(
             log_hdr,
-            text="REAL-TIME SYSTEM, FFMPEG & RTSP DIAGNOSTIC LOG",
+            text="SYSTEM & STREAM ACTIVITY LOG",
             font=("Segoe UI", 8, "bold"),
             bg="#ffffff",
             fg="#64748b",
@@ -1419,18 +1677,18 @@ class NVRCastDesktopApp:
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     # =========================================================================
-    # REAL-TIME PREVIEW RENDERER & STREAM HEALTH DIAGNOSTIC ENGINE (220ms TICK)
+    # REAL-TIME PREVIEW RENDERER & STREAM HEALTH DIAGNOSTIC ENGINE (200ms TICK)
     # =========================================================================
     def _preview_and_telemetry_tick(self):
         try:
-            # 1. Update Live 16:9 Preview Canvas if preview_enabled
+            # 1. Update Live 16:9 (640x360) Preview Canvas if preview_enabled
             if self.engine.preview_enabled and Image is not None and ImageTk is not None:
                 jpg_bytes = self.engine.get_preview_jpeg()
                 if jpg_bytes and jpg_bytes is not self._last_preview_bytes:
                     self._last_preview_bytes = jpg_bytes
                     with Image.open(io.BytesIO(jpg_bytes)) as im:
-                        if im.size != (480, 270):
-                            im = im.resize((480, 270), Image.Resampling.BILINEAR)
+                        if im.size != (self.PREVIEW_W, self.PREVIEW_H):
+                            im = im.resize((self.PREVIEW_W, self.PREVIEW_H), Image.Resampling.BILINEAR)
                         self._preview_photo = ImageTk.PhotoImage(im)
                     self.preview_canvas.delete("all")
                     self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self._preview_photo)
@@ -1442,6 +1700,13 @@ class NVRCastDesktopApp:
             h_diag = h.get("diag", "")
             h_err = h.get("error_msg", "")
             frames = h.get("decoded_frames", 0)
+            out_mode = d.get("output_mode", "both")
+
+            mode_desc = {
+                "local_only": "Watch Here in App Only (No NVR)",
+                "nvr_only": f"Casting to NVR Only (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
+                "both": f"Watching in App + Casting to NVR (rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main)",
+            }.get(out_mode, "Both")
 
             if h_state == "ERROR":
                 self._style_health_banner(
@@ -1450,7 +1715,7 @@ class NVRCastDesktopApp:
                     badge_bg="#dc2626",
                     badge_txt=" ✖ STREAM FAILED / OFFLINE ",
                     title_fg="#991b1b",
-                    title_txt=f"Stream Failed: {d.get('title', '').replace('✖ FAILED: ', '').replace('✖ OFFLINE: ', '')[:46]}",
+                    title_txt=f"Stream Failed: {d.get('title', '').replace('✖ FAILED: ', '').replace('✖ OFFLINE: ', '')[:52]}",
                     detail_fg="#b91c1c",
                     detail_txt=h_err or h_diag or "Channel or video link could not be decoded. Try another channel or click Test Link.",
                 )
@@ -1463,7 +1728,7 @@ class NVRCastDesktopApp:
                     title_fg="#1e40af",
                     title_txt=h_diag or "Verifying server & resolving stream URL...",
                     detail_fg="#1d4ed8",
-                    detail_txt=f"Target: {d.get('current_url', '')[:75]}",
+                    detail_txt=f"Target: {d.get('current_url', '')[:82]}",
                 )
             elif h_state == "CONNECTING":
                 self._style_health_banner(
@@ -1472,9 +1737,9 @@ class NVRCastDesktopApp:
                     badge_bg="#d97706",
                     badge_txt=" ◔ BUFFERING VIDEO ",
                     title_fg="#92400e",
-                    title_txt=h_diag or "Connected to server — waiting for first video frame...",
+                    title_txt=h_diag or "Connected to server — decoding first video frame...",
                     detail_fg="#b45309",
-                    detail_txt="FFmpeg is negotiating media segments (8.5s auto-timeout protection active).",
+                    detail_txt=f"Output Mode: {mode_desc}",
                 )
             elif h_state == "STALLED":
                 self._style_health_banner(
@@ -1494,31 +1759,32 @@ class NVRCastDesktopApp:
                     badge_bg="#d97706",
                     badge_txt=" ❚❚ PAUSED ",
                     title_fg="#92400e",
-                    title_txt=h_diag or "Stream Paused (NVR RTSP Hold Screen Active)",
+                    title_txt=h_diag or "Stream Paused",
                     detail_fg="#b45309",
-                    detail_txt="Click '▶ Resume' in Transport Controls to continue broadcasting.",
+                    detail_txt="Click '▶ Resume' below to continue playing.",
                 )
             elif h_state == "LIVE":
+                badge_lbl = " ● PLAYING IN APP " if out_mode == "local_only" else " ● LIVE STREAMING "
                 self._style_health_banner(
                     bg="#ecfdf5",
                     border="#6ee7b7",
                     badge_bg="#059669",
-                    badge_txt=" ● LIVE ON NVR ",
+                    badge_txt=badge_lbl,
                     title_fg="#065f46",
-                    title_txt=h_diag or f"Broadcasting Live • {d['settings']['fps']} FPS • Frame #{frames}",
+                    title_txt=h_diag or f"Playing Live • Frame #{frames}",
                     detail_fg="#047857",
-                    detail_txt=f"Streaming smoothly to rtsp://{d['lan_ip']}:{self.engine.rtsp_port}/main (and /sub)",
+                    detail_txt=mode_desc,
                 )
             else:
                 self._style_health_banner(
                     bg="#f0fdf4",
                     border="#bbf7d0",
                     badge_bg="#16a34a",
-                    badge_txt=" ● STANDBY READY ",
+                    badge_txt=" ● READY ",
                     title_fg="#166534",
-                    title_txt="RTSP Server Online • Standby Screen Active on NVR",
+                    title_txt=f"Ready • {mode_desc}",
                     detail_fg="#15803d",
-                    detail_txt="Select any Live TV channel, YouTube video, Photo Gallery, or PC Monitor on the right.",
+                    detail_txt="Double-click any Pakistani TV channel, Cricket stream, YouTube video, or Photo Slideshow on the right.",
                 )
 
             # 3. Update Elapsed Time / Playlist / Gallery Counter
@@ -1544,18 +1810,16 @@ class NVRCastDesktopApp:
             self.pause_btn.configure(text="▶ Resume" if d.get("is_paused") else "❚❚ Pause")
             self.source_label.configure(text=f"Source: {d.get('active_source', 'System')}")
 
-            # Update telemetry summary
             st = d.get("settings", {})
             self.telemetry_lbl.configure(
-                text=f"Output: {st.get('main_res')} @ {st.get('fps')}fps ({st.get('video_bitrate')}) + 640x360 Sub  •  Audio: {st.get('audio_codec')}"
+                text=f"Mode: {out_mode.upper()}  •  {st.get('main_res')} @ {st.get('fps')}fps ({st.get('video_bitrate')})  •  App Audio: {'ON' if d.get('local_audio_enabled') else 'Muted'}"
             )
 
-            # Refresh playlist queue table if count changed
             self._sync_playlist_tree_if_needed()
         except Exception:
             pass
 
-        self.root.after(240, self._preview_and_telemetry_tick)
+        self.root.after(200, self._preview_and_telemetry_tick)
 
     def _style_health_banner(
         self,
@@ -1575,10 +1839,11 @@ class NVRCastDesktopApp:
         self.health_detail_lbl.configure(bg=bg, fg=detail_fg, text=detail_txt)
 
     # =========================================================================
-    # LIVE TV & CRICKET TAB HANDLERS
+    # CHANNELS, ADD/REMOVE, IMPORT/EXPORT & VLC HANDLERS
     # =========================================================================
     def on_toggle_auto_skip(self):
         self.engine.auto_skip_offline = bool(self.auto_skip_var.get())
+        self.engine.save_persistent_config()
         self.engine.log(f"Auto-Skip Offline Channels set to: {self.engine.auto_skip_offline}")
 
     def on_quick_select_tv_cat(self, cat_id: str):
@@ -1588,6 +1853,105 @@ class NVRCastDesktopApp:
                 break
         self.tv_filter_entry.delete(0, tk.END)
         self.on_load_tv_source(auto_play=False)
+
+    def on_add_custom_channel(self):
+        title = self.add_ch_title_entry.get().strip()
+        url = self.add_ch_url_entry.get().strip()
+        if not url or url.startswith("Stream URL"):
+            messagebox.showwarning("Channel URL Required", "Please enter or paste a valid stream URL (.m3u8, YouTube, RTSP, or HTTP).")
+            return
+        if not title or title == "Channel Name":
+            title = url.split("/")[-1].split("?")[0] or "Custom Channel"
+
+        sel_idx = self.tv_source_combo.current()
+        cur_cat = self.tv_source_options[sel_idx][0] if 0 <= sel_idx < len(self.tv_source_options) else "pakistan_tv"
+        target_cat = cur_cat if cur_cat in ("pakistan_tv", "cricket_pk", "youtube_cricket", "global_sports", "custom_channels") else "pakistan_tv"
+        group_label = "Pakistan TV" if target_cat == "pakistan_tv" else "Custom Live TV"
+
+        res = self.engine.add_channel(title=title, url=url, group=group_label, category=target_cat)
+        if res.get("ok"):
+            self.add_ch_title_entry.delete(0, tk.END)
+            self.add_ch_title_entry.insert(0, "Channel Name")
+            self.add_ch_url_entry.delete(0, tk.END)
+            self.add_ch_url_entry.insert(0, "Stream URL (.m3u8, YouTube, RTSP, HTTP)")
+            self._refresh_tv_channel_tree()
+
+    def on_remove_selected_tv_channel(self):
+        idx = self._get_selected_tv_index()
+        chs = self.engine.tv_channels or []
+        if not (0 <= idx < len(chs)):
+            return
+        ch = chs[idx]
+        self.engine.remove_channel(index=idx, url=ch.get("url", ""))
+        self._refresh_tv_channel_tree()
+
+    def on_open_selected_tv_in_vlc(self):
+        idx = self._get_selected_tv_index()
+        chs = self.engine.tv_channels or []
+        if 0 <= idx < len(chs):
+            self.engine.open_in_vlc(chs[idx].get("url", ""))
+        else:
+            self.engine.open_in_vlc(DEFAULT_VLC_M3U_PATH)
+
+    def on_import_channels_dialog(self):
+        path = filedialog.askopenfilename(
+            title="Import Channels or Configuration (.m3u, .m3u8, .json)",
+            filetypes=[
+                ("Playlist & Config Files", "*.m3u *.m3u8 *.json"),
+                ("VLC M3U Playlists", "*.m3u *.m3u8"),
+                ("JSON Configuration", "*.json"),
+                ("All Files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        res = self.engine.import_config_or_m3u(path, target_category="pakistan_tv")
+        if res.get("ok"):
+            self._refresh_tv_channel_tree()
+            self._refresh_output_mode_buttons()
+            messagebox.showinfo(
+                "Import Successful",
+                f"Imported {res.get('imported', 0)} item(s) from:\n{path}\n\n"
+                f"Updated default VLC playlist:\n{DEFAULT_VLC_M3U_PATH}",
+            )
+        else:
+            messagebox.showerror("Import Failed", res.get("message", "Could not import file."))
+
+    def on_export_vlc_m3u_dialog(self):
+        path = filedialog.asksaveasfilename(
+            title="Export Channels as VLC Playlist (.m3u)",
+            initialdir=CONFIG_DIR,
+            initialfile="NVR_Cast_Hub_Channels_VLC.m3u",
+            defaultextension=".m3u",
+            filetypes=[("VLC M3U Playlist", "*.m3u"), ("All Files", "*.*")],
+        )
+        if not path:
+            return
+        out = self.engine.export_vlc_m3u(path)
+        if out:
+            messagebox.showinfo("Exported VLC Playlist", f"Saved VLC .m3u playlist to:\n{out}")
+
+    def on_export_config_json_dialog(self):
+        path = filedialog.asksaveasfilename(
+            title="Export Full Configuration & Channels (.json)",
+            initialdir=CONFIG_DIR,
+            initialfile="nvr_cast_config.json",
+            defaultextension=".json",
+            filetypes=[("JSON Configuration", "*.json"), ("All Files", "*.*")],
+        )
+        if not path:
+            return
+        out = self.engine.save_persistent_config(path)
+        if out:
+            messagebox.showinfo("Exported Configuration", f"Saved JSON configuration to:\n{out}")
+
+    def on_reset_default_channels(self):
+        if messagebox.askyesno(
+            "Reset Default Channels",
+            "Restore all default Pakistani TV, Live Cricket, and Sports channels and regenerate the default VLC .m3u file?",
+        ):
+            self.engine.reset_default_channels()
+            self._refresh_tv_channel_tree()
 
     def _refresh_tv_channel_tree(self):
         chs = self.engine.tv_channels or []
@@ -1601,11 +1965,11 @@ class NVRCastDesktopApp:
             if cached_st:
                 st_txt = cached_st
             elif "youtube.com" in low_u or "youtu.be" in low_u:
-                st_txt = "▶ YouTube Auto-Play"
+                st_txt = "▶ YouTube Live/Auto"
             elif ".m3u8" in low_u:
                 st_txt = "● HLS Live Stream"
             else:
-                st_txt = "● MPEG-TS Live"
+                st_txt = "● Direct Live Stream"
 
             iid = str(i)
             self.tv_tree.insert(
@@ -1622,7 +1986,7 @@ class NVRCastDesktopApp:
                 self.tv_tree.selection_set(sel_id)
                 self.tv_tree.see(sel_id)
 
-        self.tv_count_lbl.configure(text=f"{len(chs)} Channels Loaded")
+        self.tv_count_lbl.configure(text=f"{len(chs)} Channels")
 
     def on_load_tv_source(self, auto_play: bool = False):
         sel_idx = self.tv_source_combo.current()
@@ -1751,7 +2115,7 @@ class NVRCastDesktopApp:
 
     def on_stream_file(self):
         filepath = filedialog.askopenfilename(
-            title="Select Video File to Stream to NVR",
+            title="Select Video File",
             filetypes=[("Video Files", "*.mp4 *.mkv *.avi *.mov *.ts *.webm"), ("All Files", "*.*")],
         )
         if filepath:
@@ -1766,14 +2130,14 @@ class NVRCastDesktopApp:
         self.engine.gallery_transition = bool(self.gal_transition_var.get())
 
     def on_pick_gallery_folder(self):
-        folder = filedialog.askdirectory(title="Select Picture Folder for NVR Slideshow")
+        folder = filedialog.askdirectory(title="Select Picture Folder for Slideshow")
         if folder:
             self.gal_folder_var.set(folder)
             self.on_start_gallery_slideshow()
 
     def on_pick_gallery_files(self):
         files = filedialog.askopenfilenames(
-            title="Select Picture(s) for NVR Slideshow",
+            title="Select Picture(s) for Slideshow",
             filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp *.webp *.gif"), ("All Files", "*.*")],
         )
         if files:
@@ -1794,7 +2158,7 @@ class NVRCastDesktopApp:
     def on_start_gallery_slideshow(self):
         folder = self.gal_folder_var.get().strip()
         if not folder:
-            folder = filedialog.askdirectory(title="Select Picture Folder for NVR Slideshow")
+            folder = filedialog.askdirectory(title="Select Picture Folder for Slideshow")
             if not folder:
                 return
             self.gal_folder_var.set(folder)
@@ -1851,6 +2215,7 @@ class NVRCastDesktopApp:
         self.auto_skip_var.set(self.engine.auto_skip_offline)
         if self.engine.gallery_folder:
             self.gal_folder_var.set(self.engine.gallery_folder)
+        self._refresh_output_mode_buttons()
         self._refresh_tv_channel_tree()
 
     def copy_to_clipboard(self, text: str):
@@ -1875,8 +2240,9 @@ class NVRCastDesktopApp:
         self.engine.capture_pc_audio = self.pc_audio_var.get()
         self.engine.show_cursor = self.cursor_var.get()
         self.engine.loop_video = self.loop_video_var.get()
+        self.engine.save_persistent_config()
         self.engine.log(
-            f"Settings updated: Res={self.engine.main_res}, Aspect={self.engine.aspect_mode}, "
+            f"Settings saved: Res={self.engine.main_res}, Aspect={self.engine.aspect_mode}, "
             f"FPS={self.engine.fps}, Bitrate={self.engine.video_bitrate}, Loop={self.engine.loop_video}"
         )
         if self.engine.current_mode == "SCREEN":
