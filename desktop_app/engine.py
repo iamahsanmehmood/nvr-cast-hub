@@ -1524,7 +1524,11 @@ class NVRCastEngine:
                 shutil.copy2(bundled_mtx, MEDIAMTX_EXE)
 
             bundled_ext = os.path.join(BUNDLE_DIR, "chrome_extension")
-            if os.path.isdir(bundled_ext) and os.path.abspath(bundled_ext) != os.path.abspath(EXT_DIR):
+            if (
+                os.path.isdir(bundled_ext)
+                and os.path.abspath(bundled_ext) != os.path.abspath(EXT_DIR)
+                and not os.path.isfile(os.path.join(EXT_DIR, "worker_timer.js"))
+            ):
                 shutil.copytree(bundled_ext, EXT_DIR, dirs_exist_ok=True)
         except Exception as e:
             self.log(f"Asset unpack note: {e}")
