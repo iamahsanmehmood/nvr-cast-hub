@@ -514,6 +514,7 @@ class NVRCastEngine:
         self.preview_enabled = True
         self._latest_preview_jpeg = b""
         self._latest_preview_pil = None
+        self._preview_dirty = False
         self._preview_frame_queue = collections.deque(maxlen=36)
         self._preview_lock = threading.Lock()
         self.stream_health = "STANDBY"       # STANDBY, PROBING, CONNECTING, LIVE, STALLED, PAUSED, ERROR
@@ -882,10 +883,28 @@ class NVRCastEngine:
 
     def toggle_local_audio(self, force_state: bool = None) -> bool:
         """Toggles local PC speaker audio playback when watching channels/videos inside the app."""
+        old_val = self.local_audio_enabled
         self.local_audio_enabled = (not self.local_audio_enabled) if force_state is None else bool(force_state)
         self.save_persistent_config()
         self._pc_player_command("mute", {"muted": not self.local_audio_enabled})
         self.log(f"App Local Speaker Audio: {'ON (Playing on PC Speakers)' if self.local_audio_enabled else 'MUTED'}")
+        if not old_val and self.local_audio_enabled and not self.is_paused:
+            if self.current_mode == "YOUTUBE" and self.current_url:
+                self.start_youtube_stream(
+                    self.current_url,
+                    start_sec=self.get_current_playback_sec(),
+                    loop=self.loop_video,
+                    source=self.active_source,
+                    _from_playlist=(len(self.playlist_items) > 1),
+                    custom_title=self.current_title.replace("[LOOP] ", ""),
+                )
+            elif self.current_mode == "FILE" and self.current_filepath:
+                self.start_local_file_stream(
+                    self.current_filepath,
+                    start_sec=self.get_current_playback_sec(),
+                    loop=self.loop_video,
+                    source=self.active_source,
+                )
         return self.local_audio_enabled
 
     def _pc_player_enabled(self) -> bool:
@@ -1000,8 +1019,8 @@ class NVRCastEngine:
             with self._preview_lock:
                 self._latest_preview_jpeg = buf.getvalue()
                 self._latest_preview_pil = im.copy()
+                self._preview_dirty = True
                 self._preview_frame_queue.clear()
-                self._preview_frame_queue.append(self._latest_preview_pil)
         except Exception:
             pass
 
@@ -1011,24 +1030,35 @@ class NVRCastEngine:
 
     def get_next_preview_frame(self):
         """
-        Returns (newest pre-decoded PIL.Image, is_new_frame) for the legacy (non-VLC) preview path.
-        FFmpeg already paces frames at 1.0x via the realtime filter, so we always present the newest
-        frame: queueing here made video drift up to ~1s behind audio whenever Tk ticked slower than 25 fps.
+        Returns (newest PIL.Image, is_new_frame) for the Studio preview canvas.
+        Decodes JPEG lazily ONLY when a new frame has arrived and the GUI actually requests it,
+        so the FFmpeg stdout drainer never touches PIL or holds the GIL.
         """
         with self._preview_lock:
-            if self._preview_frame_queue:
-                newest = self._preview_frame_queue[-1]
-                self._preview_frame_queue.clear()
-                return (newest, True)
-            return (self._latest_preview_pil, False)
+            if not getattr(self, "_preview_dirty", False):
+                return (self._latest_preview_pil, False)
+            self._preview_dirty = False
+            pil_im = self._latest_preview_pil
+            raw_jpg = self._latest_preview_jpeg
+
+        if pil_im is None and raw_jpg and Image is not None:
+            try:
+                with Image.open(io.BytesIO(raw_jpg)) as _im:
+                    pil_im = _im.convert("RGB")
+                with self._preview_lock:
+                    if self._latest_preview_pil is None:
+                        self._latest_preview_pil = pil_im
+            except Exception:
+                pil_im = None
+
+        return (pil_im, pil_im is not None)
 
     def _attach_ffmpeg_log_drainer(self, proc: subprocess.Popen, tag: str = "FFmpeg"):
         """
         Drains both:
-          1. proc.stdout (pipe:1): High-FPS MJPEG preview frames emitted directly by FFmpeg,
-             pre-decoded into PIL.Image off the UI thread and queued in a smooth jitter buffer.
+          1. proc.stdout (pipe:1): Lightweight 640x360 MJPEG preview frames emitted by FFmpeg,
+             stored as raw JPEG bytes without synchronous PIL decoding so OS pipes NEVER block.
           2. proc.stderr (pipe:2): FFmpeg error/diagnostic logs.
-        Ensures OS pipes NEVER block and provides 100% accurate live frame telemetry.
         """
         if not proc:
             return
@@ -1039,10 +1069,12 @@ class NVRCastEngine:
                 buf = bytearray()
                 try:
                     while True:
-                        chunk = proc.stdout.read(32768)
+                        chunk = proc.stdout.read(65536)
                         if not chunk:
                             break
                         buf.extend(chunk)
+                        latest_jpg = None
+                        frames_in_chunk = 0
                         while True:
                             soi = buf.find(b"\xff\xd8")
                             if soi < 0:
@@ -1053,64 +1085,50 @@ class NVRCastEngine:
                                 if soi > 0:
                                     del buf[:soi]
                                 break
-                            jpg = bytes(buf[soi : eoi + 2])
+                            latest_jpg = bytes(buf[soi : eoi + 2])
                             del buf[: eoi + 2]
-                            # Ignore frames from a superseded process or when a newer cast generation has started
-                            if proc != self.ffmpeg_proc or (tag != "Standby" and proc_gen != self._cast_gen):
-                                continue
+                            frames_in_chunk += 1
 
-                            # Pre-decode JPEG into RGB PIL.Image off the Tkinter main thread
-                            pil_frame = None
-                            if Image is not None:
-                                try:
-                                    with Image.open(io.BytesIO(jpg)) as _im:
-                                        pil_frame = _im.convert("RGB")
-                                except Exception:
-                                    pil_frame = None
+                        if latest_jpg is None:
+                            continue
+                        if proc != self.ffmpeg_proc or (tag != "Standby" and proc_gen != self._cast_gen):
+                            continue
 
-                            if tag == "Standby":
-                                if self.stream_health not in ("ERROR", "PROBING", "CONNECTING"):
-                                    with self._preview_lock:
-                                        self._latest_preview_jpeg = jpg
-                                        if pil_frame is not None:
-                                            self._latest_preview_pil = pil_frame
-                                            self._preview_frame_queue.clear()
-                                            self._preview_frame_queue.append(pil_frame)
-                                    self.decoded_frames += 1
-                                    self.last_frame_ts = time.time()
-                                    self.stream_health = "STANDBY"
-                                    self.stream_diag = "Standby Feed Ready • Waiting for Cast"
-                            elif tag == "PausedHold":
+                        if tag == "Standby":
+                            if self.stream_health not in ("ERROR", "PROBING", "CONNECTING"):
                                 with self._preview_lock:
-                                    self._latest_preview_jpeg = jpg
-                                    if pil_frame is not None:
-                                        self._latest_preview_pil = pil_frame
-                                        self._preview_frame_queue.clear()
-                                        self._preview_frame_queue.append(pil_frame)
-                                self.decoded_frames += 1
+                                    self._latest_preview_jpeg = latest_jpg
+                                    self._latest_preview_pil = None
+                                    self._preview_dirty = True
+                                self.decoded_frames += frames_in_chunk
                                 self.last_frame_ts = time.time()
-                                self.stream_health = "PAUSED"
-                            elif tag == "BrowserCast":
-                                # Direct Chrome frames feed _preview_frame_queue in push_browser_frame with 0ms latency;
-                                # only use FFmpeg's pipe:1 frame for the initial connecting splash before frame #1 arrives.
-                                if self.decoded_frames == 0:
-                                    with self._preview_lock:
-                                        self._latest_preview_jpeg = jpg
-                                        if pil_frame is not None:
-                                            self._latest_preview_pil = pil_frame
-                                            self._preview_frame_queue.append(pil_frame)
-                            else:
+                                self.stream_health = "STANDBY"
+                                self.stream_diag = "Standby Feed Ready • Waiting for Cast"
+                        elif tag == "PausedHold":
+                            with self._preview_lock:
+                                self._latest_preview_jpeg = latest_jpg
+                                self._latest_preview_pil = None
+                                self._preview_dirty = True
+                            self.decoded_frames += frames_in_chunk
+                            self.last_frame_ts = time.time()
+                            self.stream_health = "PAUSED"
+                        elif tag == "BrowserCast":
+                            if self.decoded_frames == 0:
                                 with self._preview_lock:
-                                    self._latest_preview_jpeg = jpg
-                                    if pil_frame is not None:
-                                        self._latest_preview_pil = pil_frame
-                                        self._preview_frame_queue.append(pil_frame)
-                                self.decoded_frames += 1
-                                self.last_frame_ts = time.time()
-                                self.stream_health = "LIVE"
-                                self.stream_diag = (
-                                    f"LIVE • {self.fps} FPS • Frame #{self.decoded_frames} (Buffered)"
-                                )
+                                    self._latest_preview_jpeg = latest_jpg
+                                    self._latest_preview_pil = None
+                                    self._preview_dirty = True
+                        else:
+                            with self._preview_lock:
+                                self._latest_preview_jpeg = latest_jpg
+                                self._latest_preview_pil = None
+                                self._preview_dirty = True
+                            self.decoded_frames += frames_in_chunk
+                            self.last_frame_ts = time.time()
+                            self.stream_health = "LIVE"
+                            self.stream_diag = (
+                                f"LIVE • {self.fps} FPS • Frame #{self.decoded_frames}"
+                            )
                 except Exception:
                     pass
 
@@ -1746,17 +1764,16 @@ paths:
         self.ffmpeg_proc = None
 
     def _build_audio_args(self, stream_map: str) -> list:
-        af_sync = ["-af", "aresample=async=1000"]
         if self.audio_codec == "none":
             return ["-an"]
         elif self.audio_codec == "pcm_alaw":
-            return ["-map", stream_map] + af_sync + ["-c:a", "pcm_alaw", "-ar", "8000", "-ac", "1"]
+            return ["-map", stream_map, "-c:a", "pcm_alaw", "-ar", "8000", "-ac", "1"]
         elif self.audio_codec == "pcm_mulaw":
-            return ["-map", stream_map] + af_sync + ["-c:a", "pcm_mulaw", "-ar", "8000", "-ac", "1"]
+            return ["-map", stream_map, "-c:a", "pcm_mulaw", "-ar", "8000", "-ac", "1"]
         elif self.audio_codec == "aac_hq":
-            return ["-map", stream_map] + af_sync + ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"]
+            return ["-map", stream_map, "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"]
         else:
-            return ["-map", stream_map] + af_sync + ["-c:a", "aac", "-b:a", "64k", "-ar", "16000", "-ac", "1"]
+            return ["-map", stream_map, "-c:a", "aac", "-b:a", "64k", "-ar", "16000", "-ac", "1"]
 
     def _scale_expr(self, w: str, h: str) -> str:
         if self.aspect_mode == "stretch":
@@ -1879,15 +1896,12 @@ paths:
         local_audio_port: int = None,
         pace_realtime: bool = False,
         pc_player: bool = False,
+        no_preview: bool = False,
     ) -> list:
         """
-        Builds FFmpeg output arguments according to self.output_mode:
-          - 'local_only': 960x540 @ 24fps MJPEG preview on pipe:1 + buffered local speaker audio (NO NVR RTSP needed)
-          - 'nvr_only':   /main (HD) + /sub (SD) RTSP + 1fps heartbeat on pipe:1
-          - 'both':       /main (HD) + /sub (SD) RTSP + 854x480 @ 20fps MJPEG preview on pipe:1 + buffered local speaker audio
-        When pace_realtime=True, paces decoded frames smoothly at 1.0x wall-clock speed via FFmpeg's realtime filter.
-        When pc_player=True, the embedded libVLC player renders the PC view, so pipe:1 only carries a light
-        8 fps 640x360 heartbeat (Web Studio preview + health telemetry) and no PCM audio is produced.
+        Builds FFmpeg output arguments to simultaneously push /main (HD) and /sub (SD) RTSP streams.
+        When no_preview=True (Screen Share, Browser Cast, Gallery, Standby, Paused), outputs ONLY
+        /main and /sub RTSP with zero pipe:1 MJPEG overhead (exact e055ef6 low-latency pipeline).
         """
         w, h = self.main_res.split("x")
         fps = int(self.fps)
@@ -1897,14 +1911,11 @@ paths:
 
         main_scale = self._scale_expr(w, h)
         sub_scale = self._scale_expr("640", "360")
-        prev_scale = self._scale_expr("854", "480")
-        rt_filter = ",realtime=limit=2.5" if pace_realtime else ""
 
         local_audio_args = []
-        if local_audio_port and not pc_player:
+        if local_audio_port and not pc_player and not no_preview:
             local_audio_args = [
                 "-map", audio_map,
-                "-af", "aresample=async=1000",
                 "-c:a", "pcm_s16le",
                 "-ar", "44100",
                 "-ac", "2",
@@ -1912,51 +1923,16 @@ paths:
                 f"tcp://127.0.0.1:{local_audio_port}",
             ]
 
-        if self.output_mode == "local_only" and pc_player:
-            # Embedded PC player shows the real video; FFmpeg just keeps health + Web Studio preview alive.
-            hb_scale = self._scale_expr("640", "360")
-            filter_complex = f"[0:v]fps=8{rt_filter},{hb_scale},format=yuvj420p[vprev]"
-            return [
-                "-filter_complex", filter_complex,
-                "-map", "[vprev]", "-c:v", "mjpeg", "-q:v", "6", "-f", "image2pipe", "pipe:1",
-            ]
-
-        if self.output_mode == "local_only":
-            hd_prev_scale = self._scale_expr("960", "540")
-            filter_complex = f"[0:v]fps=24{rt_filter},{hd_prev_scale},format=yuvj420p[vprev]"
+        if not no_preview and self.output_mode == "local_only":
+            filter_complex = f"[0:v]fps=15,format=yuv420p,{sub_scale},format=yuvj420p[vprev]"
             v_prev_enc = [
                 "-map", "[vprev]",
                 "-c:v", "mjpeg",
-                "-q:v", "4",
+                "-q:v", "5",
                 "-f", "image2pipe",
                 "pipe:1",
             ]
             return ["-filter_complex", filter_complex] + v_prev_enc + local_audio_args
-
-        if self.output_mode == "nvr_only":
-            filter_complex = (
-                f"[0:v]fps={fps}{rt_filter},format=yuv420p,split=3[v1][v2][v3];"
-                f"[v1]{main_scale}[vmain];"
-                f"[v2]{sub_scale}[vsub];"
-                f"[v3]fps=1,{prev_scale},format=yuvj420p[vprev]"
-            )
-        elif pc_player:
-            hb_scale = self._scale_expr("640", "360")
-            filter_complex = (
-                f"[0:v]fps={fps}{rt_filter},split=3[v1][v2][v3];"
-                f"[v1]{main_scale},format=yuv420p[vmain];"
-                f"[v2]{sub_scale},format=yuv420p[vsub];"
-                f"[v3]fps=8,{hb_scale},format=yuvj420p[vprev]"
-            )
-        else:
-            # In 'both' mode, share the single unified fps+realtime pipeline across all 3 branches
-            # so there is zero secondary fps filter jitter between /main, /sub, and the PC preview!
-            filter_complex = (
-                f"[0:v]fps={fps}{rt_filter},split=3[v1][v2][v3];"
-                f"[v1]{main_scale},format=yuv420p[vmain];"
-                f"[v2]{sub_scale},format=yuv420p[vsub];"
-                f"[v3]{prev_scale},format=yuvj420p[vprev]"
-            )
 
         v_main_enc = [
             "-map", "[vmain]",
@@ -1992,15 +1968,39 @@ paths:
             "-sc_threshold", "0",
         ]
 
+        a_args = self._build_audio_args(audio_map)
+
+        if no_preview:
+            filter_complex = (
+                f"[0:v]fps={fps},format=yuv420p,split=2[v1][v2];"
+                f"[v1]{main_scale}[vmain];"
+                f"[v2]{sub_scale}[vsub]"
+            )
+            return (
+                ["-filter_complex", filter_complex]
+                + v_main_enc
+                + a_args
+                + ["-f", "rtsp", "-rtsp_transport", "tcp", main_url]
+                + v_sub_enc
+                + a_args
+                + ["-f", "rtsp", "-rtsp_transport", "tcp", sub_url]
+            )
+
+        prev_fps = 1 if self.output_mode == "nvr_only" else 12
+        filter_complex = (
+            f"[0:v]fps={fps},format=yuv420p,split=2[v1][v2];"
+            f"[v1]{main_scale}[vmain];"
+            f"[v2]{sub_scale},split=2[vsub][vp];"
+            f"[vp]fps={prev_fps},format=yuvj420p[vprev]"
+        )
+
         v_prev_enc = [
             "-map", "[vprev]",
             "-c:v", "mjpeg",
-            "-q:v", "5",
+            "-q:v", "6",
             "-f", "image2pipe",
             "pipe:1",
         ]
-
-        a_args = self._build_audio_args(audio_map)
 
         return (
             ["-filter_complex", filter_complex]
@@ -2027,6 +2027,12 @@ paths:
                 self.stream_diag = "Standby Feed Ready • Waiting for Cast"
                 self.stream_error_msg = ""
                 self.decoded_frames = 0
+                self._set_diagnostic_preview_frame(
+                    "● STANDBY — NVR RTSP ONLINE",
+                    "Ready to Cast to NVR & Studio",
+                    "Select a TV channel, YouTube video, Photo Gallery, or PC Monitor to begin.",
+                    (22, 163, 74),
+                )
                 self.status_cb(self.current_mode, self.current_title)
 
             font_spec = "fontfile='C\\:/Windows/Fonts/arial.ttf'"
@@ -2051,7 +2057,7 @@ paths:
                 "-i", drawtext_filter,
                 "-f", "lavfi",
                 "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-            ] + self._build_dual_output_args("1:a:0")
+            ] + self._build_dual_output_args("1:a:0", no_preview=True)
 
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -2059,7 +2065,7 @@ paths:
             self.ffmpeg_proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 startupinfo=startupinfo,
             )
@@ -2095,19 +2101,25 @@ paths:
             "-i", drawtext_filter,
             "-f", "lavfi",
             "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        ] + self._build_dual_output_args("1:a:0")
+        ] + self._build_dual_output_args("1:a:0", no_preview=True)
 
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         self.ffmpeg_proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             startupinfo=startupinfo,
         )
         self.stream_health = "PAUSED"
         self.stream_diag = f"Stream Paused @ {self.seek_offset_sec}s • {held_title[:40]}"
+        self._set_diagnostic_preview_frame(
+            "❚❚ STREAM PAUSED",
+            held_title[:50],
+            f"Paused at {self.seek_offset_sec}s — Click Resume to continue.",
+            (245, 158, 11),
+        )
         self._attach_ffmpeg_log_drainer(self.ffmpeg_proc, "PausedHold")
 
     def toggle_pause(self, force_state: bool = None, source: str = None) -> bool:
@@ -2590,56 +2602,46 @@ paths:
             self.log(f"Matched Stream: '{title}' ({'LIVE' if is_live else 'VOD'}, {'HLS' if is_hls else 'HTTP'})")
 
             seek_args = ["-ss", str(start_sec)] if (start_sec > 0 and not is_live) else []
-            http_net_args = []
+            loop_args = ["-stream_loop", "-1"] if (self.loop_video and not is_live and not audio_url) else []
+            reconnect_args = []
             if video_url.startswith(("http://", "https://")):
-                http_net_args = [
+                reconnect_args = [
                     "-user_agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                     "-rw_timeout", "15000000",
                     "-reconnect", "1",
                     "-reconnect_streamed", "1",
-                    "-reconnect_on_network_error", "1",
-                    "-reconnect_on_http_error", "4xx,5xx",
                     "-reconnect_delay_max", "5",
                 ]
                 if item_referrer:
-                    http_net_args += ["-headers", f"Referer: {item_referrer}\r\n"]
-                if is_hls:
-                    http_net_args += [
-                        "-http_persistent", "1",
-                        "-http_multiple", "1",
-                        "-max_reload", "1000",
-                        "-m3u8_hold_counters", "1000",
-                    ]
-                    if is_live:
-                        http_net_args += ["-live_start_index", "-4"]
+                    reconnect_args += ["-headers", f"Referer: {item_referrer}\r\n"]
 
             if audio_url:
-                dl_input_args = (
-                    ["-thread_queue_size", "4096", "-rtbufsize", "64M"]
-                    + seek_args + http_net_args + ["-i", video_url]
-                    + ["-thread_queue_size", "4096", "-rtbufsize", "32M"]
-                    + seek_args + http_net_args + ["-i", audio_url]
-                    + ["-map", "0:v:0", "-map", "1:a:0?"]
+                input_args = (
+                    ["-re", "-thread_queue_size", "1024"]
+                    + seek_args
+                    + reconnect_args
+                    + ["-i", video_url]
+                    + ["-thread_queue_size", "1024"]
+                    + seek_args
+                    + reconnect_args
+                    + ["-i", audio_url]
                 )
+                audio_map = "1:a:0?"
             else:
-                dl_input_args = (
-                    ["-thread_queue_size", "4096", "-rtbufsize", "64M"]
-                    + seek_args + http_net_args + ["-i", video_url]
-                    + ["-map", "0:v:0", "-map", "0:a:0?"]
+                input_args = (
+                    ["-re", "-thread_queue_size", "1024"]
+                    + loop_args
+                    + seek_args
+                    + reconnect_args
+                    + ["-i", video_url]
+                    + ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
                 )
+                audio_map = "0:a:0?"
 
-            if is_hls and not audio_url:
-                dl_codec_args = ["-c", "copy", "-f", "mpegts", "pipe:1"]
-            else:
-                dl_codec_args = ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-f", "mpegts", "pipe:1"]
-
-            dl_cmd = [self.ffmpeg_exe, "-hide_banner", "-loglevel", "warning"] + dl_input_args + dl_codec_args
-
-            pc_play = self._pc_player_enabled()
             local_aport = (
                 self._start_local_speaker_audio_sink()
-                if (self.output_mode in ("local_only", "both") and not pc_play)
+                if (self.local_audio_enabled and self.output_mode in ("local_only", "both"))
                 else None
             )
             cmd = (
@@ -2647,20 +2649,14 @@ paths:
                     self.ffmpeg_exe,
                     "-hide_banner",
                     "-loglevel", "warning",
-                    "-thread_queue_size", "4096",
-                    "-fflags", "+genpts+igndts+discardcorrupt",
-                    "-i", "pipe:0",
                 ]
+                + input_args
                 + self._build_dual_output_args(
-                    "0:a:0?", local_audio_port=local_aport, pace_realtime=True, pc_player=pc_play
+                    audio_map, local_audio_port=local_aport
                 )
             )
 
             display_title = f"{'[LOOP] ' if self.loop_video else ''}{pl_badge}{title}"
-            ts_q = queue.Queue(maxsize=2400)  # Up to ~75 MB in-memory MPEG-TS stream buffer
-            pc_q = queue.Queue(maxsize=2400) if pc_play else None
-            pc_feed_ok = [pc_play]
-            pc_port = self._start_pc_feed_server(pc_q, my_gen) if pc_play else None
 
             with self.stream_lock:
                 if my_gen != self._cast_gen:
@@ -2675,11 +2671,11 @@ paths:
                 self.stream_started_at = time.time()
                 self.decoded_frames = 0
                 self.stream_health = "CONNECTING"
-                self.stream_diag = f"Pre-Buffering Stream for Smooth Playback: {title[:40]}..."
+                self.stream_diag = f"Connecting & Streaming to NVR: {title[:40]}..."
                 self._set_diagnostic_preview_frame(
-                    "PRE-BUFFERING STREAM...",
+                    "CONNECTING STREAM...",
                     title[:54],
-                    "Filling high-speed stream buffer for jitter-free playback...",
+                    "Starting direct real-time RTSP broadcast...",
                     "#f59e0b",
                 )
                 self.status_cb(self.current_mode, self.current_title)
@@ -2687,188 +2683,32 @@ paths:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-                self.prefetch_proc = subprocess.Popen(
-                    dl_cmd,
+                self.ffmpeg_proc = subprocess.Popen(
+                    cmd,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     startupinfo=startupinfo,
                 )
-                dl_ref = self.prefetch_proc
-
-                self.ffmpeg_proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=65536,
-                    startupinfo=startupinfo,
-                )
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "YouTube")
-                if pc_play:
-                    self._pc_player_command("play", {
-                        "url": f"http://127.0.0.1:{pc_port}/live.ts",
-                        "audio_url": None,
-                        "start_sec": 0,       # prefetcher already applied the seek
-                        "referrer": "",
-                        "is_live": True,      # local feed: no VLC-side seeking
-                        "loop": False,
-                        "title": display_title,
-                    })
-
-            def _drain_dl_stderr(p_err):
-                if not p_err:
-                    return
-                try:
-                    for raw_line in iter(p_err.readline, b""):
-                        if not raw_line:
-                            break
-                        s = raw_line.decode("utf-8", errors="ignore").strip()
-                        if s:
-                            self._last_ffmpeg_err = s
-                except Exception:
-                    pass
-
-            threading.Thread(target=_drain_dl_stderr, args=(dl_ref.stderr,), daemon=True).start()
-
-            def _pump_prefetch_to_queue():
-                nonlocal dl_ref
-                total_dl_bytes = 0
-                live_retries = 0
-                try:
-                    while my_gen == self._cast_gen and not self.is_paused and proc_ref.poll() is None:
-                        while my_gen == self._cast_gen and not self.is_paused and proc_ref.poll() is None:
-                            chunk = dl_ref.stdout.read(32768) if dl_ref and dl_ref.stdout else b""
-                            if not chunk:
-                                break
-                            total_dl_bytes += len(chunk)
-                            while my_gen == self._cast_gen and not self.is_paused and proc_ref.poll() is None:
-                                try:
-                                    ts_q.put(chunk, timeout=0.4)
-                                    break
-                                except queue.Full:
-                                    continue
-                            if pc_feed_ok[0]:
-                                try:
-                                    pc_q.put(chunk, timeout=3.0)
-                                except queue.Full:
-                                    # PC player stalled for 3s+: stop teeing so the NVR feed is never held back
-                                    pc_feed_ok[0] = False
-                                    self.log("PC player feed stalled — NVR stream continues unaffected.")
-
-                        # If live TV stream disconnected mid-broadcast after delivering data, reconnect seamlessly
-                        if (
-                            is_live
-                            and total_dl_bytes > 0
-                            and live_retries < 5
-                            and my_gen == self._cast_gen
-                            and not self.is_paused
-                            and proc_ref.poll() is None
-                        ):
-                            live_retries += 1
-                            self.log(f"Live stream buffer reconnecting ({live_retries}/5) for '{title}'...")
-                            time.sleep(0.6)
-                            try:
-                                startupinfo_r = subprocess.STARTUPINFO()
-                                startupinfo_r.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                                dl_ref = subprocess.Popen(
-                                    dl_cmd,
-                                    stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    startupinfo=startupinfo_r,
-                                )
-                                self.prefetch_proc = dl_ref
-                                threading.Thread(target=_drain_dl_stderr, args=(dl_ref.stderr,), daemon=True).start()
-                                continue
-                            except Exception:
-                                break
-                        break
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        ts_q.put_nowait(None)
-                    except Exception:
-                        pass
-                    if pc_q is not None:
-                        try:
-                            pc_q.put(None, timeout=2.0)
-                        except Exception:
-                            pass
-
-            def _pump_queue_to_decoder():
-                try:
-                    # Pre-buffer ~320KB (or up to 1.8s wait) so HLS segment transitions never starve the decoder
-                    prebuf = []
-                    prebuf_bytes = 0
-                    target_prebuf = 384 * 1024 if is_live else 256 * 1024
-                    t_pre_start = time.time()
-                    eof_reached = False
-                    while prebuf_bytes < target_prebuf and (time.time() - t_pre_start) < 2.0:
-                        try:
-                            item = ts_q.get(timeout=0.25)
-                            if item is None:
-                                eof_reached = True
-                                break
-                            prebuf.append(item)
-                            prebuf_bytes += len(item)
-                        except queue.Empty:
-                            if prebuf_bytes > 64 * 1024 and (time.time() - t_pre_start) >= 1.2:
-                                break
-                            continue
-
-                    for chunk in prebuf:
-                        if proc_ref.poll() is not None or my_gen != self._cast_gen:
-                            return
-                        proc_ref.stdin.write(chunk)
-                    if prebuf:
-                        proc_ref.stdin.flush()
-                    prebuf.clear()
-
-                    if not eof_reached:
-                        while proc_ref.poll() is None and my_gen == self._cast_gen and not self.is_paused:
-                            try:
-                                chunk = ts_q.get(timeout=0.5)
-                            except queue.Empty:
-                                continue
-                            if chunk is None:
-                                break
-                            proc_ref.stdin.write(chunk)
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        if proc_ref.stdin:
-                            proc_ref.stdin.close()
-                    except Exception:
-                        pass
-
-            threading.Thread(target=_pump_prefetch_to_queue, daemon=True).start()
-            threading.Thread(target=_pump_queue_to_decoder, daemon=True).start()
 
             # First-frame & stall watchdog so dead M3U8 segments never hang the app
             def _stream_watchdog():
                 t_start = time.time()
                 while proc_ref.poll() is None and my_gen == self._cast_gen and not self.is_paused:
-                    time.sleep(0.3)
-                    if self.decoded_frames == 0 and (time.time() - t_start) > 14.5:
-                        self.log(f"✖ Watchdog: '{title}' delivered 0 video frames in 14.5s (Stream Offline / Dead Segments).")
+                    time.sleep(0.4)
+                    if self.decoded_frames == 0 and (time.time() - t_start) > 15.0:
+                        self.log(f"✖ Watchdog: '{title}' delivered 0 video frames in 15s (Stream Offline / Dead Segments).")
                         self.stream_health = "ERROR"
-                        self.stream_error_msg = f"Stream Offline / Timed Out: '{title}' sent no video frames (14.5s)."
+                        self.stream_error_msg = f"Stream Offline / Timed Out: '{title}' sent no video frames (15s)."
                         self.stream_diag = self.stream_error_msg
                         self._set_diagnostic_preview_frame(
                             "STREAM OFFLINE / TIMED OUT",
                             title[:54],
-                            "Server sent 0 video frames within 14.5 seconds.",
+                            "Server sent 0 video frames within 15 seconds.",
                             "#ef4444",
                         )
-                        try:
-                            if self.prefetch_proc:
-                                self.prefetch_proc.terminate()
-                        except Exception:
-                            pass
                         try:
                             proc_ref.terminate()
                         except Exception:
@@ -2879,7 +2719,7 @@ paths:
                         self.stream_diag = f"⚠ Stream Re-Buffering (Waiting for packets: {int(time.time() - self.last_frame_ts)}s)"
 
             threading.Thread(target=_stream_watchdog, daemon=True).start()
-            self.log(f"Pre-buffering & streaming ({source}): {display_title}")
+            self.log(f"NOW STREAMING ({source}): {display_title}")
 
             proc_ref.wait()
             with self.stream_lock:
@@ -2977,10 +2817,9 @@ paths:
             title = os.path.basename(filepath)
             loop_args = ["-stream_loop", "-1"] if self.loop_video else []
             seek_args = ["-ss", str(start_sec)] if start_sec > 0 else []
-            pc_play = self._pc_player_enabled()
             local_aport = (
                 self._start_local_speaker_audio_sink()
-                if (self.output_mode in ("local_only", "both") and not pc_play)
+                if (self.local_audio_enabled and self.output_mode in ("local_only", "both"))
                 else None
             )
             cmd = (
@@ -2989,13 +2828,11 @@ paths:
                     "-hide_banner",
                     "-loglevel", "warning",
                     "-re",
-                    "-thread_queue_size", "4096",
-                    "-fflags", "+genpts+discardcorrupt",
                 ]
                 + loop_args
                 + seek_args
                 + ["-i", filepath]
-                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport, pc_player=pc_play)
+                + self._build_dual_output_args("0:a:0?", local_audio_port=local_aport)
             )
             with self.stream_lock:
                 self._stop_ffmpeg_locked()
@@ -3023,13 +2860,6 @@ paths:
                 )
                 proc_ref = self.ffmpeg_proc
                 self._attach_ffmpeg_log_drainer(proc_ref, "File")
-                if pc_play:
-                    self._pc_player_command("play", {
-                        "url": filepath,
-                        "start_sec": int(start_sec or 0),
-                        "loop": bool(self.loop_video),
-                        "title": self.current_title,
-                    })
 
             self.log(f"Streaming local file to NVR ({source}, loop={self.loop_video}): {title}")
             proc_ref.wait()
@@ -3151,11 +2981,16 @@ paths:
             bgra_img = Image.merge("RGBA", (b, g, r, a))
             raw_bytes = bgra_img.tobytes()
 
+            prev_im = canvas.resize((640, 360), Image.Resampling.BILINEAR) if (out_w, out_h) != (640, 360) else canvas.copy()
+            prev_buf = io.BytesIO()
+            prev_im.save(prev_buf, format="JPEG", quality=82)
+            prev_jpg = prev_buf.getvalue()
+
             with cache_lock:
                 if len(slide_cache) >= 24:
                     slide_cache.pop(next(iter(slide_cache)))
-                slide_cache[cache_key] = (bgra_img, raw_bytes)
-            return (bgra_img, raw_bytes)
+                slide_cache[cache_key] = (bgra_img, raw_bytes, prev_im, prev_jpg)
+            return (bgra_img, raw_bytes, prev_im, prev_jpg)
 
         def _preload_slide_async(idx: int, total: int, out_w: int, out_h: int):
             if not self.gallery_images:
@@ -3177,7 +3012,7 @@ paths:
             cur_idx = 0
             self.gallery_index = 0
             first_file = self.gallery_images[0]
-            cur_pil, cur_frame_bytes = _render_slide_pil(first_file, 0, total_imgs, out_w, out_h)
+            cur_pil, cur_frame_bytes, cur_prev_im, cur_prev_jpg = _render_slide_pil(first_file, 0, total_imgs, out_w, out_h)
             if total_imgs > 1:
                 _preload_slide_async(1, total_imgs, out_w, out_h)
 
@@ -3215,17 +3050,22 @@ paths:
                         "-i", "pipe:0",
                     ]
                     + audio_input_args
-                    + self._build_dual_output_args("1:a:0")
+                    + self._build_dual_output_args("1:a:0", no_preview=True)
                 )
 
                 self.current_mode = "GALLERY"
                 self.active_source = source
                 self.is_paused = False
-                self.decoded_frames = 0
+                self.decoded_frames = 1
+                self.last_frame_ts = time.time()
                 self.stream_health = "LIVE"
                 self.stream_error_msg = ""
                 self.stream_diag = f"Photo Gallery Active • {total_imgs} slide(s)"
                 self.current_title = f"Gallery [1/{total_imgs}]: {os.path.basename(first_file)}"
+                with self._preview_lock:
+                    self._latest_preview_pil = cur_prev_im
+                    self._latest_preview_jpeg = cur_prev_jpg
+                    self._preview_dirty = True
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -3233,7 +3073,7 @@ paths:
                 self.ffmpeg_proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     bufsize=out_w * out_h * 4 * 2,
                     startupinfo=startupinfo,
@@ -3271,7 +3111,7 @@ paths:
                                 slide_cache.clear()
 
                         next_file = self.gallery_images[next_idx]
-                        next_pil, next_bytes = _render_slide_pil(next_file, next_idx, total_imgs, out_w, out_h)
+                        next_pil, next_bytes, next_prev_im, next_prev_jpg = _render_slide_pil(next_file, next_idx, total_imgs, out_w, out_h)
 
                         # Build smooth 6-frame crossfade if multiple photos
                         if total_imgs > 1 and self.gallery_transition and cur_pil is not None:
@@ -3284,6 +3124,12 @@ paths:
                         cur_pil = next_pil
                         cur_frame_bytes = next_bytes
                         self.gallery_index = cur_idx
+                        self.decoded_frames += 1
+                        self.last_frame_ts = time.time()
+                        with self._preview_lock:
+                            self._latest_preview_pil = next_prev_im
+                            self._latest_preview_jpeg = next_prev_jpg
+                            self._preview_dirty = True
                         slide_deadline = time.perf_counter() + float(self.gallery_interval)
                         self.current_title = (
                             f"{'[PAUSED] ' if self.is_paused else ''}"
@@ -3508,17 +3354,24 @@ paths:
                         "-i", "pipe:0",
                     ]
                     + audio_input_args
-                    + self._build_dual_output_args("1:a:0")
+                    + self._build_dual_output_args("1:a:0", no_preview=True)
                 )
 
                 self.current_mode = "SCREEN"
                 self.current_title = f"PC Desktop: {desc}"
                 self.active_source = source
                 self.is_paused = False
-                self.decoded_frames = 0
+                self.decoded_frames = 1
+                self.last_frame_ts = time.time()
                 self.stream_health = "LIVE"
                 self.stream_error_msg = ""
                 self.stream_diag = f"Desktop Mirroring Active • {desc}"
+                self._set_diagnostic_preview_frame(
+                    "● PC DESKTOP MIRRORING LIVE",
+                    f"PC Desktop: {desc}",
+                    f"Low-Latency Direct NVR Broadcast Active ({self.fps} FPS — Local Mirror Off)",
+                    (16, 185, 129),
+                )
                 self.status_cb(self.current_mode, self.current_title)
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -3526,7 +3379,7 @@ paths:
                 self.ffmpeg_proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     bufsize=cap_w * cap_h * 4 * 2,
                     startupinfo=startupinfo,
@@ -3545,10 +3398,12 @@ paths:
                 while not stop_evt.is_set() and proc_ref.poll() is None:
                     if not self.is_paused or last_buf is None:
                         shot = sct.grab(capture_rect)
-                        buf = bytearray(shot.raw)
                         if self.show_cursor:
+                            buf = bytearray(shot.raw)
                             draw_cursor_on_bgra(buf, cap_w, cap_h, mon_left, mon_top)
-                        last_buf = buf
+                            last_buf = buf
+                        else:
+                            last_buf = shot.raw
                     proc_ref.stdin.write(last_buf)
 
                     next_frame_t += frame_interval
@@ -3669,7 +3524,14 @@ paths:
                         "-i", "pipe:0",
                     ]
                     + audio_input_args
-                    + self._build_dual_output_args("1:a:0")
+                    + self._build_dual_output_args("1:a:0", no_preview=True)
+                )
+
+                self._set_diagnostic_preview_frame(
+                    "● CONNECTING CHROME VIDEO STREAM",
+                    label[:50],
+                    "Waiting for first frame from Chrome Extension / Web Studio...",
+                    (124, 58, 237),
                 )
 
                 startupinfo = subprocess.STARTUPINFO()
@@ -3677,7 +3539,7 @@ paths:
                 self.ffmpeg_proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     bufsize=out_w * out_h * 3 * 2,
                     startupinfo=startupinfo,
@@ -3767,8 +3629,8 @@ paths:
                     self._browser_latest_frame = raw_rgb
                 with self._preview_lock:
                     self._latest_preview_jpeg = jpeg_bytes
-                    self._latest_preview_pil = im_rgb
-                    self._preview_frame_queue.append(im_rgb)
+                    self._latest_preview_pil = None
+                    self._preview_dirty = True
                 self.decoded_frames += 1
                 self.last_frame_ts = time.time()
                 self.stream_health = "PAUSED" if self.is_paused else "LIVE"

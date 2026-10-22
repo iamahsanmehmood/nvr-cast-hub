@@ -95,28 +95,20 @@ class NVRCastDesktopApp:
         self.fs_audio_btn = None
         self._fs_last_size = (0, 0)
 
-        # Embedded hardware PC player (libVLC). Falls back to the legacy FFmpeg preview if VLC is missing.
         self.video_host = None
         self._video_host_home = None      # (parent_hwnd, x, y, w, h) inside the Studio preview frame
         self._video_surface = "studio"    # studio | pip | fs
         self._video_host_visible = False
         self._pc_last_stats_ts = 0.0
         self._pc_stats = {}
-        self.pc_player = EmbeddedPlayer(log_cb=self.engine.log)
+        self.pc_player = type("_NoopPlayer", (), {"available": False, "active": False, "stop": lambda self: None})()
 
         self._build_ui()
-        self._init_video_host()
-        if self.pc_player.available:
-            self.engine.use_embedded_player = True
-            self.engine.local_player_hook = self._pc_player_hook_threadsafe
-            self.engine.log(f"Embedded HW-accelerated PC player ready (libVLC {self.pc_player.version}).")
-        else:
-            self.engine.log("VLC not found — using legacy FFmpeg preview. Install VLC (64-bit) for smooth PC playback.")
         self.root.bind("<F11>", lambda e: self.on_toggle_fullscreen())
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._init_services, daemon=True).start()
-        self.root.after(40, self._preview_and_telemetry_tick)
+        self.root.after(80, self._preview_and_telemetry_tick)
 
     def _configure_ttk_styles(self):
         style = ttk.Style()
@@ -2148,7 +2140,8 @@ class NVRCastDesktopApp:
         scale = min(cw / float(iw), ch / float(ih))
         tw = max(1, int(iw * scale))
         th = max(1, int(ih * scale))
-        resized = pil_im.resize((tw, th), Image.Resampling.BILINEAR) if (tw, th) != (iw, ih) else pil_im
+        resample_mode = Image.Resampling.NEAREST if tw > 960 else Image.Resampling.BILINEAR
+        resized = pil_im.resize((tw, th), resample_mode) if (tw, th) != (iw, ih) else pil_im
         photo = ImageTk.PhotoImage(resized)
         ox = (cw - tw) // 2
         oy = (ch - th) // 2
@@ -2232,8 +2225,9 @@ class NVRCastDesktopApp:
                     if fs_alive:
                         self.fs_photo = self._render_fitted_frame_on_canvas(self.fs_canvas, im_rgb)
 
-            # 2. Run Status Banner & Telemetry UI Sync every 5th tick (200ms) so 40ms video loop stays ultra-light
-            if self._tick_counter % 5 == 0:
+            # 2. Run Status Banner & Telemetry UI Sync (~350ms interval)
+            low_freq_mode = self.engine.current_mode in ("STANDBY", "SCREEN", "STOPPED")
+            if (self._tick_counter % (2 if low_freq_mode else 4)) == 0:
                 if pip_alive:
                     if self.pip_title_lbl:
                         self.pip_title_lbl.configure(text=self.engine.current_title)
@@ -2379,7 +2373,9 @@ class NVRCastDesktopApp:
             pass
 
         elapsed_ms = int((time.perf_counter() - t_tick_start) * 1000)
-        next_delay_ms = max(12, 38 - elapsed_ms)
+        low_freq = (not self.engine.preview_enabled) or (self.engine.current_mode in ("STANDBY", "SCREEN", "STOPPED"))
+        target_ms = 220 if low_freq else 80
+        next_delay_ms = max(20, target_ms - elapsed_ms)
         self.root.after(next_delay_ms, self._preview_and_telemetry_tick)
 
     def _style_health_banner(
